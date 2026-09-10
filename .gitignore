@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+.env.keys
+!.env.example
+
+# Build output
+dist/
+build/
+.next/
+out/
+
+# Supabase
+supabase/.branches
+supabase/.temp
+
+# Editor / OS
+.DS_Store
+*.log
+npm-debug.log*
+.vscode/
+.idea/
+
+# Claude Code — local overrides only; .claude/settings.json IS committed
+.claude/settings.local.json
