@@ -5,6 +5,9 @@
   "description": "A web app for creating memes from templates or freeform, with a personal gallery.",
   "type": "module",
   "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
     "db:link": "supabase link --project-ref \"$SUPABASE_PROJECT_REF\"",
     "db:push": "supabase db push",
     "db:diff": "supabase db diff",
@@ -15,6 +18,16 @@
   "keywords": [],
   "license": "UNLICENSED",
   "devDependencies": {
-    "supabase": "^2.117.0"
+    "@types/node": "^26.5.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "supabase": "^2.117.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0"
+  },
+  "dependencies": {
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
   }
 }
