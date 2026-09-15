@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Button } from '../../components/ui/button'
 import { suggestTags } from '../../lib/creationNaming'
 
@@ -25,14 +25,6 @@ export function SaveDialog({
   const [tags, setTags] = useState<string[]>(defaultTags)
   const [tagInput, setTagInput] = useState('')
   const tagSuggestions = suggestTags(existingCreations, tagInput)
-
-  useEffect(() => {
-    if (open) {
-      setName(defaultName)
-      setTags(defaultTags)
-      setTagInput('')
-    }
-  }, [open, defaultName, defaultTags])
 
   if (!open) return null
 
