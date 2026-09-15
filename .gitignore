@@ -31,3 +31,6 @@ npm-debug.log*
 # Claude Code — local overrides only; .claude/settings.json IS committed
 .claude/settings.local.json
 .claude/worktrees/
+
+# Superpowers brainstorming visual-companion scratch files
+.superpowers/
