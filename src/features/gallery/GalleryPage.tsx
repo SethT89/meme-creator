@@ -7,7 +7,7 @@ export function GalleryPage() {
   const navigate = useNavigate()
 
   return (
-    <section className="p-8">
+    <section>
       <h2 className="text-xl font-semibold">My Creations</h2>
       <p className="mb-4 text-sm text-muted-foreground">
         {isLoading ? 'Loading…' : `${creations.length} ${creations.length === 1 ? 'meme' : 'memes'} saved`}

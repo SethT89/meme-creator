@@ -39,7 +39,12 @@ export function AppShell() {
           if content inside grows taller than that, the panel (and page) just
           grows with it instead of clipping. */}
       <main className="mx-4 mb-4 flex-1 rounded-2xl bg-background shadow-[0_14px_32px_-10px_rgba(15,23,42,0.25)] sm:mx-8 sm:mb-8">
-        <Outlet />
+        {/* Shared here, not per-page — every routed page's heading/content
+            lands at this same left position and width regardless of which
+            page it is, so switching the header toggle never shifts it. */}
+        <div className="mx-auto max-w-2xl p-8">
+          <Outlet />
+        </div>
       </main>
     </div>
   )

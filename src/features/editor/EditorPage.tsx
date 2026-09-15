@@ -62,7 +62,7 @@ export function EditorPage() {
   }
 
   if (creationId && loadingExisting) {
-    return <p className="p-8 text-sm text-muted-foreground">Loading…</p>
+    return <p className="text-sm text-muted-foreground">Loading…</p>
   }
 
   if (!source) {
@@ -128,7 +128,7 @@ export function EditorPage() {
   return (
     // Deselects on any click that isn't explicitly stopped from bubbling —
     // by the selected field itself, or the property bar's own controls.
-    <div className="mx-auto max-w-2xl p-8" onClick={() => setSelectedFieldId(null)}>
+    <div onClick={() => setSelectedFieldId(null)}>
       <h2 className="mb-3 text-lg font-semibold">{savedMeta ? savedMeta.name : 'Editor'}</h2>
 
       {/* Page-level actions live above the canvas, not overlapping the image —

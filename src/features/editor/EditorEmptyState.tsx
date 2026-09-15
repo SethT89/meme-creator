@@ -17,7 +17,7 @@ export function EditorEmptyState({ onUpload, onSelectTemplate }: EditorEmptyStat
   const { data: templates = [], isLoading } = useTemplates()
 
   return (
-    <div className="mx-auto max-w-2xl p-8">
+    <>
       <h2 className="text-lg font-semibold">Start a New Meme</h2>
       <p className="mb-4 text-sm text-muted-foreground">Upload your own image, or choose a template</p>
 
@@ -62,6 +62,6 @@ export function EditorEmptyState({ onUpload, onSelectTemplate }: EditorEmptyStat
           </button>
         ))}
       </div>
-    </div>
+    </>
   )
 }
