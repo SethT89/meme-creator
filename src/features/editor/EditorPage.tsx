@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Button } from '../../components/ui/button'
 import { EditorEmptyState } from './EditorEmptyState'
@@ -123,7 +123,6 @@ export function EditorPage() {
     updateCreation.mutate({ id: savedMeta.id, name: savedMeta.name, tags: savedMeta.tags })
   }
 
-  const selectedField = fields.find((f) => f.id === selectedFieldId)
   const templateRow = source.type === 'template' ? allTemplates.find((t) => t.id === source.templateId) : undefined
 
   return (
@@ -192,34 +191,49 @@ export function EditorPage() {
 
           {source.type === 'template' &&
             templateRow &&
-            fields.map((field) => (
-              <div
-                key={field.id}
-                className="absolute cursor-pointer overflow-hidden border-[1.5px] border-blue-500 bg-white/90 p-1 text-center font-bold text-black"
-                style={{
-                  left: `${(field.position_x / templateRow.image_width) * 100}%`,
-                  top: `${(field.position_y / templateRow.image_height) * 100}%`,
-                  width: `${(field.width / templateRow.image_width) * 100}%`,
-                  height: `${(field.height / templateRow.image_height) * 100}%`,
-                  fontSize: `${field.font_size}px`,
-                }}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setSelectedFieldId(field.id)
-                }}
-              >
-                {field.label}
-              </div>
-            ))}
+            fields.map((field) => {
+              const leftPct = (field.position_x / templateRow.image_width) * 100
+              const topPct = (field.position_y / templateRow.image_height) * 100
+              const widthPct = (field.width / templateRow.image_width) * 100
+              const heightPct = (field.height / templateRow.image_height) * 100
 
-          {selectedField && (
-            <div
-              className="absolute left-1/2 top-1/2 -translate-x-1/2"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <PropertyBar />
-            </div>
-          )}
+              return (
+                <Fragment key={field.id}>
+                  <div
+                    className="absolute cursor-pointer overflow-hidden border-[1.5px] border-blue-500 bg-white/90 p-1 text-center font-bold text-black"
+                    style={{
+                      left: `${leftPct}%`,
+                      top: `${topPct}%`,
+                      width: `${widthPct}%`,
+                      height: `${heightPct}%`,
+                      fontSize: `${field.font_size}px`,
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setSelectedFieldId(field.id)
+                    }}
+                  >
+                    {field.label}
+                  </div>
+
+                  {selectedFieldId === field.id && (
+                    <div
+                      className="absolute"
+                      style={{
+                        left: `${leftPct + widthPct / 2}%`,
+                        top: `${topPct}%`,
+                        // Anchored to the field's own position, not the canvas
+                        // center — sits just above the field, horizontally centered on it.
+                        transform: 'translate(-50%, calc(-100% - 8px))',
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <PropertyBar />
+                    </div>
+                  )}
+                </Fragment>
+              )
+            })}
         </div>
       </div>
 
