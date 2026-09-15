@@ -127,7 +127,7 @@ export function EditorPage() {
   const templateRow = source.type === 'template' ? allTemplates.find((t) => t.id === source.templateId) : undefined
 
   return (
-    <div className="p-8">
+    <div className="mx-auto max-w-2xl p-8">
       <h2 className="mb-3 text-lg font-semibold">{savedMeta ? savedMeta.name : 'Editor'}</h2>
 
       <div className="flex justify-center">

@@ -17,7 +17,7 @@ export function EditorEmptyState({ onUpload, onSelectTemplate }: EditorEmptyStat
   const { data: templates = [], isLoading } = useTemplates()
 
   return (
-    <div className="p-8">
+    <div className="mx-auto max-w-2xl p-8">
       <h2 className="text-lg font-semibold">Start a New Meme</h2>
       <p className="mb-4 text-sm text-muted-foreground">Upload your own image, or choose a template</p>
 
@@ -38,6 +38,9 @@ export function EditorEmptyState({ onUpload, onSelectTemplate }: EditorEmptyStat
         </p>
       )}
 
+      {/* Fixed aspect-square tiles (not a fixed height with flexible width) so thumbnails
+          keep a sane, consistent shape regardless of viewport width or the source image's
+          own orientation — bg-cover crops to fill the square rather than stretching. */}
       <div className="grid grid-cols-4 gap-2.5">
         {templates.map((t) => (
           <button
@@ -52,7 +55,7 @@ export function EditorEmptyState({ onUpload, onSelectTemplate }: EditorEmptyStat
                 imageHeight: t.image_height,
               })
             }
-            className="flex h-20 items-end overflow-hidden rounded-md bg-muted bg-cover bg-center p-1.5 text-left text-xs font-medium text-white [text-shadow:0_1px_2px_rgb(0_0_0_/_0.8)]"
+            className="flex aspect-square items-end overflow-hidden rounded-md bg-muted bg-cover bg-center p-1.5 text-left text-xs font-medium text-white [text-shadow:0_1px_2px_rgb(0_0_0_/_0.8)]"
             style={{ backgroundImage: `url(${t.blank_image_url})` }}
           >
             {t.name}
