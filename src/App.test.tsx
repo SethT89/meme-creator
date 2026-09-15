@@ -12,4 +12,13 @@ describe('App', () => {
     )
     expect(screen.getByRole('heading', { name: 'Meme Creator' })).toBeInTheDocument()
   })
+
+  it('renders a link to the gallery', () => {
+    render(
+      <MemoryRouter>
+        <App />
+      </MemoryRouter>,
+    )
+    expect(screen.getByRole('link', { name: /my creations/i })).toHaveAttribute('href', '/gallery')
+  })
 })
