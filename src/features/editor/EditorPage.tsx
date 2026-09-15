@@ -127,7 +127,9 @@ export function EditorPage() {
   const templateRow = source.type === 'template' ? allTemplates.find((t) => t.id === source.templateId) : undefined
 
   return (
-    <div className="mx-auto max-w-2xl p-8">
+    // Deselects on any click that isn't explicitly stopped from bubbling —
+    // by the selected field itself, or the property bar's own controls.
+    <div className="mx-auto max-w-2xl p-8" onClick={() => setSelectedFieldId(null)}>
       <h2 className="mb-3 text-lg font-semibold">{savedMeta ? savedMeta.name : 'Editor'}</h2>
 
       {/* Page-level actions live above the canvas, not overlapping the image —
@@ -180,14 +182,10 @@ export function EditorPage() {
               // to fit within these bounds using its own intrinsic aspect
               // ratio, so portrait/landscape/square templates all render
               // undistorted regardless of viewport width.
-              className="block max-h-[65vh] w-auto max-w-full cursor-pointer"
-              onClick={() => setSelectedFieldId(null)}
+              className="block max-h-[65vh] w-auto max-w-full"
             />
           ) : (
-            <div
-              className="flex h-80 w-80 items-center justify-center border border-border bg-muted text-sm text-muted-foreground"
-              onClick={() => setSelectedFieldId(null)}
-            >
+            <div className="flex h-80 w-80 items-center justify-center border border-border bg-muted text-sm text-muted-foreground">
               {source.name}
             </div>
           )}
@@ -215,7 +213,10 @@ export function EditorPage() {
             ))}
 
           {selectedField && (
-            <div className="absolute left-1/2 top-1/2 -translate-x-1/2">
+            <div
+              className="absolute left-1/2 top-1/2 -translate-x-1/2"
+              onClick={(e) => e.stopPropagation()}
+            >
               <PropertyBar />
             </div>
           )}

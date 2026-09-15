@@ -107,7 +107,7 @@ describe('EditorPage', () => {
     expect(screen.getByRole('button', { name: 'Export' })).toBeDisabled()
   })
 
-  it('selecting one field shows the property bar for it; selecting another moves it; clicking empty canvas hides it', async () => {
+  it('selecting one field shows the property bar for it; selecting another moves it; clicking the image hides it', async () => {
     renderEditor()
     await userEvent.click(await screen.findByText('Two Buttons'))
 
@@ -121,6 +121,28 @@ describe('EditorPage', () => {
 
     await userEvent.click(screen.getByRole('img', { name: 'Two Buttons' }))
     expect(screen.queryByText(/size: medium/i)).not.toBeInTheDocument()
+  })
+
+  it('deselects when clicking anywhere on the page, not just the image', async () => {
+    renderEditor()
+    await userEvent.click(await screen.findByText('Two Buttons'))
+    await userEvent.click(screen.getByText('Caption 1'))
+    expect(screen.getByText(/size: medium/i)).toBeInTheDocument()
+
+    // Clicking the page heading — nowhere near the canvas — should still deselect.
+    await userEvent.click(screen.getByRole('heading', { name: 'Editor' }))
+    expect(screen.queryByText(/size: medium/i)).not.toBeInTheDocument()
+  })
+
+  it('does not deselect when clicking a control inside the property bar itself', async () => {
+    renderEditor()
+    await userEvent.click(await screen.findByText('Two Buttons'))
+    await userEvent.click(screen.getByText('Caption 1'))
+    expect(screen.getByText(/size: medium/i)).toBeInTheDocument()
+
+    await userEvent.click(screen.getByText(/size: medium/i))
+    expect(screen.getByText('Extra Large')).toBeInTheDocument() // the size preset panel opened
+    expect(screen.getByText(/size: medium/i)).toBeInTheDocument() // property bar itself is still showing
   })
 
   it('saves a new template creation with its real template_id, then shows the Save/Save As split', async () => {
