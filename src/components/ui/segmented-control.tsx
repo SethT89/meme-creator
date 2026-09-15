@@ -13,7 +13,10 @@ export interface SegmentedControlProps {
 
 export function SegmentedControl({ options, value, onChange }: SegmentedControlProps) {
   return (
-    <div className="inline-flex items-center gap-0.5 rounded-full bg-muted p-1">
+    // No gap between segments — one continuous pill (bold bg-primary fill),
+    // active segment reads as a white pill inset flush against the container
+    // edge, inactive segment is just text directly on the colored fill.
+    <div className="inline-flex items-center rounded-full bg-primary p-1">
       {options.map((option) => {
         const active = option.value === value
         return (
@@ -23,10 +26,10 @@ export function SegmentedControl({ options, value, onChange }: SegmentedControlP
             aria-pressed={active}
             onClick={() => onChange(option.value)}
             className={cn(
-              'rounded-full px-4 py-1.5 text-sm font-medium transition-colors',
+              'rounded-full px-5 py-2 text-sm font-semibold transition-colors',
               active
                 ? 'bg-background text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground',
+                : 'text-primary-foreground/80 hover:text-primary-foreground',
             )}
           >
             {option.label}
