@@ -130,6 +130,46 @@ export function EditorPage() {
     <div className="mx-auto max-w-2xl p-8">
       <h2 className="mb-3 text-lg font-semibold">{savedMeta ? savedMeta.name : 'Editor'}</h2>
 
+      {/* Page-level actions live above the canvas, not overlapping the image —
+          only per-field editing controls (PropertyBar) appear on the canvas itself. */}
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-1.5">
+        <Button size="sm" variant="outline" onClick={startOver}>
+          ← Start Over
+        </Button>
+        <div className="flex flex-wrap gap-1.5">
+          <Button size="sm" variant="outline" disabled>
+            + Text
+          </Button>
+          <Button size="sm" variant="outline" disabled>
+            + Sticker
+          </Button>
+          <Button size="sm" variant="outline" disabled>
+            Export
+          </Button>
+
+          {!savedMeta && (
+            <Button size="sm" onClick={() => openDialog('save')}>
+              Save to Gallery
+            </Button>
+          )}
+          {savedMeta && (
+            <div className="flex">
+              <Button size="sm" className="rounded-r-none" onClick={handleQuickSave}>
+                Save
+              </Button>
+              <Button
+                size="sm"
+                aria-label="▾"
+                className="rounded-l-none border-l border-primary-foreground/30 px-2"
+                onClick={() => openDialog('saveAs')}
+              >
+                ▾
+              </Button>
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="flex justify-center">
         <div className="relative inline-block rounded-lg bg-[repeating-conic-gradient(#00000010_0%_25%,transparent_0%_50%)] bg-[length:20px_20px]">
           {source.type === 'template' ? (
@@ -151,42 +191,6 @@ export function EditorPage() {
               {source.name}
             </div>
           )}
-
-          <div className="absolute right-2.5 top-2.5 flex gap-1.5">
-            <Button size="sm" variant="outline" onClick={startOver}>
-              ← Start Over
-            </Button>
-            <Button size="sm" variant="outline" disabled>
-              + Text
-            </Button>
-            <Button size="sm" variant="outline" disabled>
-              + Sticker
-            </Button>
-            <Button size="sm" variant="outline" disabled>
-              Export
-            </Button>
-
-            {!savedMeta && (
-              <Button size="sm" onClick={() => openDialog('save')}>
-                Save to Gallery
-              </Button>
-            )}
-            {savedMeta && (
-              <div className="flex">
-                <Button size="sm" className="rounded-r-none" onClick={handleQuickSave}>
-                  Save
-                </Button>
-                <Button
-                  size="sm"
-                  aria-label="▾"
-                  className="rounded-l-none border-l border-primary-foreground/30 px-2"
-                  onClick={() => openDialog('saveAs')}
-                >
-                  ▾
-                </Button>
-              </div>
-            )}
-          </div>
 
           {source.type === 'template' &&
             templateRow &&
