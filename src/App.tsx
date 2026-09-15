@@ -1,9 +1,7 @@
+import { AppShell } from './components/layout/AppShell'
+
 function App() {
-  return (
-    <main className="p-8">
-      <h1 className="text-3xl font-bold">Meme Creator</h1>
-    </main>
-  )
+  return <AppShell />
 }
 
 export default App
