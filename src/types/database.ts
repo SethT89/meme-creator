@@ -20,8 +20,10 @@ export type Database = {
           created_at: string
           exported_image_url: string | null
           id: string
+          name: string
           source_type: Database["public"]["Enums"]["creation_source_type"]
           status: Database["public"]["Enums"]["creation_status"]
+          tags: string[]
           template_id: string | null
           updated_at: string
           user_id: string
@@ -31,8 +33,10 @@ export type Database = {
           created_at?: string
           exported_image_url?: string | null
           id?: string
+          name?: string
           source_type: Database["public"]["Enums"]["creation_source_type"]
           status?: Database["public"]["Enums"]["creation_status"]
+          tags?: string[]
           template_id?: string | null
           updated_at?: string
           user_id?: string
@@ -42,8 +46,10 @@ export type Database = {
           created_at?: string
           exported_image_url?: string | null
           id?: string
+          name?: string
           source_type?: Database["public"]["Enums"]["creation_source_type"]
           status?: Database["public"]["Enums"]["creation_status"]
+          tags?: string[]
           template_id?: string | null
           updated_at?: string
           user_id?: string
