@@ -6,9 +6,11 @@ anywhere). Every meme is saved to a personal gallery, **My Creations**.
 
 Full spec: [`docs/meme-app-spec.md`](docs/meme-app-spec.md).
 
-Status: **app scaffold in place** (Vite + React + TypeScript, Supabase wired
-end-to-end). Editor, template mode, gallery, and admin flows are not built yet
-— see `docs/superpowers/plans/` for the sub-project breakdown.
+Status: **app shell working end-to-end** (Vite + React + TypeScript, Supabase
+wired end-to-end). Editor is the home screen; My Creations gallery, Save/Save
+As, and design tokens are all real. Layer editing (drag/resize/rotate), real
+canvas export, pickers, and the admin template flow are not built yet — see
+`docs/superpowers/plans/` and `docs/superpowers/specs/2026-09-15-app-ui-ux-design.md`.
 
 ## Stack
 
