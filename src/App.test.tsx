@@ -13,13 +13,24 @@ describe('App', () => {
     expect(screen.getByRole('heading', { name: 'Meme Creator' })).toBeInTheDocument()
   })
 
-  it('renders a link to the gallery', () => {
+  it('shows New Meme active by default, with My Saved Memes as the other option', () => {
     render(
       <MemoryRouter>
         <App />
       </MemoryRouter>,
     )
-    expect(screen.getByRole('link', { name: /my creations/i })).toHaveAttribute('href', '/gallery')
+    expect(screen.getByRole('button', { name: 'New Meme' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'My Saved Memes' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('shows My Saved Memes active when already on /gallery', () => {
+    render(
+      <MemoryRouter initialEntries={['/gallery']}>
+        <App />
+      </MemoryRouter>,
+    )
+    expect(screen.getByRole('button', { name: 'My Saved Memes' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'New Meme' })).toHaveAttribute('aria-pressed', 'false')
   })
 
   it('renders routed content inside a main landmark, separate from the header', () => {
