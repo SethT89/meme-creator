@@ -130,86 +130,92 @@ export function EditorPage() {
     <div className="p-8">
       <h2 className="mb-3 text-lg font-semibold">{savedMeta ? savedMeta.name : 'Editor'}</h2>
 
-      <div className="relative mx-auto max-w-md rounded-lg bg-[repeating-conic-gradient(#00000010_0%_25%,transparent_0%_50%)] bg-[length:20px_20px]">
-        {source.type === 'template' ? (
-          <img
-            src={source.blankImageUrl}
-            alt={source.name}
-            className="block w-full cursor-pointer"
-            onClick={() => setSelectedFieldId(null)}
-          />
-        ) : (
-          <div
-            className="flex min-h-[320px] items-center justify-center border border-border bg-muted text-sm text-muted-foreground"
-            onClick={() => setSelectedFieldId(null)}
-          >
-            {source.name}
-          </div>
-        )}
-
-        <div className="absolute right-2.5 top-2.5 flex gap-1.5">
-          <Button size="sm" variant="outline" onClick={startOver}>
-            ← Start Over
-          </Button>
-          <Button size="sm" variant="outline" disabled>
-            + Text
-          </Button>
-          <Button size="sm" variant="outline" disabled>
-            + Sticker
-          </Button>
-          <Button size="sm" variant="outline" disabled>
-            Export
-          </Button>
-
-          {!savedMeta && (
-            <Button size="sm" onClick={() => openDialog('save')}>
-              Save to Gallery
-            </Button>
+      <div className="flex justify-center">
+        <div className="relative inline-block rounded-lg bg-[repeating-conic-gradient(#00000010_0%_25%,transparent_0%_50%)] bg-[length:20px_20px]">
+          {source.type === 'template' ? (
+            <img
+              src={source.blankImageUrl}
+              alt={source.name}
+              // No explicit width/height — the browser scales the image down
+              // to fit within these bounds using its own intrinsic aspect
+              // ratio, so portrait/landscape/square templates all render
+              // undistorted regardless of viewport width.
+              className="block max-h-[65vh] w-auto max-w-full cursor-pointer"
+              onClick={() => setSelectedFieldId(null)}
+            />
+          ) : (
+            <div
+              className="flex h-80 w-80 items-center justify-center border border-border bg-muted text-sm text-muted-foreground"
+              onClick={() => setSelectedFieldId(null)}
+            >
+              {source.name}
+            </div>
           )}
-          {savedMeta && (
-            <div className="flex">
-              <Button size="sm" className="rounded-r-none" onClick={handleQuickSave}>
-                Save
+
+          <div className="absolute right-2.5 top-2.5 flex gap-1.5">
+            <Button size="sm" variant="outline" onClick={startOver}>
+              ← Start Over
+            </Button>
+            <Button size="sm" variant="outline" disabled>
+              + Text
+            </Button>
+            <Button size="sm" variant="outline" disabled>
+              + Sticker
+            </Button>
+            <Button size="sm" variant="outline" disabled>
+              Export
+            </Button>
+
+            {!savedMeta && (
+              <Button size="sm" onClick={() => openDialog('save')}>
+                Save to Gallery
               </Button>
-              <Button
-                size="sm"
-                aria-label="▾"
-                className="rounded-l-none border-l border-primary-foreground/30 px-2"
-                onClick={() => openDialog('saveAs')}
+            )}
+            {savedMeta && (
+              <div className="flex">
+                <Button size="sm" className="rounded-r-none" onClick={handleQuickSave}>
+                  Save
+                </Button>
+                <Button
+                  size="sm"
+                  aria-label="▾"
+                  className="rounded-l-none border-l border-primary-foreground/30 px-2"
+                  onClick={() => openDialog('saveAs')}
+                >
+                  ▾
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {source.type === 'template' &&
+            templateRow &&
+            fields.map((field) => (
+              <div
+                key={field.id}
+                className="absolute cursor-pointer overflow-hidden border-[1.5px] border-blue-500 bg-white/90 p-1 text-center font-bold text-black"
+                style={{
+                  left: `${(field.position_x / templateRow.image_width) * 100}%`,
+                  top: `${(field.position_y / templateRow.image_height) * 100}%`,
+                  width: `${(field.width / templateRow.image_width) * 100}%`,
+                  height: `${(field.height / templateRow.image_height) * 100}%`,
+                  fontSize: `${field.font_size}px`,
+                }}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setSelectedFieldId(field.id)
+                }}
               >
-                ▾
-              </Button>
+                {field.label}
+              </div>
+            ))}
+
+          {selectedField && (
+            <div className="absolute left-1/2 top-1/2 -translate-x-1/2">
+              <PropertyBar />
             </div>
           )}
         </div>
-
-        {source.type === 'template' &&
-          templateRow &&
-          fields.map((field) => (
-            <div
-              key={field.id}
-              className="absolute cursor-pointer overflow-hidden border-[1.5px] border-blue-500 bg-white/90 p-1 text-center font-bold text-black"
-              style={{
-                left: `${(field.position_x / templateRow.image_width) * 100}%`,
-                top: `${(field.position_y / templateRow.image_height) * 100}%`,
-                width: `${(field.width / templateRow.image_width) * 100}%`,
-                height: `${(field.height / templateRow.image_height) * 100}%`,
-                fontSize: `${field.font_size}px`,
-              }}
-              onClick={(e) => {
-                e.stopPropagation()
-                setSelectedFieldId(field.id)
-              }}
-            >
-              {field.label}
-            </div>
-          ))}
-
-        {selectedField && (
-          <div className="absolute left-1/2 top-1/2 -translate-x-1/2">
-            <PropertyBar />
-          </div>
-        )}
       </div>
 
       <SaveDialog
