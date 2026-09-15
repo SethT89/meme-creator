@@ -2,12 +2,17 @@ import { useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Button } from '../../components/ui/button'
 import { EditorEmptyState } from './EditorEmptyState'
+import type { SelectedTemplate } from './EditorEmptyState'
 import { PropertyBar } from './PropertyBar'
 import { SaveDialog } from './SaveDialog'
 import { useCreation, useCreateCreation, useCreations, useUpdateCreation } from '../../lib/queries/creations'
+import { useTemplates, useTemplateFields } from '../../lib/queries/templates'
 import { nextAvailableName } from '../../lib/creationNaming'
 
-type Source = { type: 'template' | 'freeform'; name: string } | null
+type Source =
+  | { type: 'freeform'; name: string }
+  | { type: 'template'; name: string; templateId: string; blankImageUrl: string }
+  | null
 type SavedMeta = { id: string; name: string; tags: string[] } | null
 
 export function EditorPage() {
@@ -16,27 +21,44 @@ export function EditorPage() {
 
   const { data: existingCreation, isLoading: loadingExisting } = useCreation(creationId)
   const { data: allCreations = [] } = useCreations()
+  const { data: allTemplates = [] } = useTemplates()
   const createCreation = useCreateCreation()
   const updateCreation = useUpdateCreation()
 
   const [source, setSource] = useState<Source>(null)
   const [savedMeta, setSavedMeta] = useState<SavedMeta>(null)
-  const [selected, setSelected] = useState(false)
+  const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dialogMode, setDialogMode] = useState<'save' | 'saveAs'>('save')
   const [dialogKey, setDialogKey] = useState(0)
+
+  const { data: fields = [] } = useTemplateFields(source?.type === 'template' ? source.templateId : undefined)
 
   // When editing an existing creation, sync local state from it the first time
   // it loads for this id — done during render (not in an effect) so it doesn't
   // clobber local state after a later Save As switches to a new id locally.
   const [loadedCreationId, setLoadedCreationId] = useState<string | undefined>(undefined)
   if (existingCreation && existingCreation.id !== loadedCreationId) {
-    setLoadedCreationId(existingCreation.id)
-    setSource({
-      type: existingCreation.source_type,
-      name: existingCreation.name.replace(/ \d+$/, '') || existingCreation.name,
-    })
-    setSavedMeta({ id: existingCreation.id, name: existingCreation.name, tags: existingCreation.tags })
+    if (existingCreation.source_type === 'template' && existingCreation.template_id) {
+      // allTemplates is a separate async query — it may not have resolved yet.
+      // Don't mark loadedCreationId until we actually find the template, so
+      // this block keeps retrying on later renders instead of giving up silently.
+      const template = allTemplates.find((t) => t.id === existingCreation.template_id)
+      if (template) {
+        setLoadedCreationId(existingCreation.id)
+        setSource({
+          type: 'template',
+          name: template.name,
+          templateId: template.id,
+          blankImageUrl: template.blank_image_url,
+        })
+        setSavedMeta({ id: existingCreation.id, name: existingCreation.name, tags: existingCreation.tags })
+      }
+    } else {
+      setLoadedCreationId(existingCreation.id)
+      setSource({ type: 'freeform', name: existingCreation.name.replace(/ \d+$/, '') || existingCreation.name })
+      setSavedMeta({ id: existingCreation.id, name: existingCreation.name, tags: existingCreation.tags })
+    }
   }
 
   if (creationId && loadingExisting) {
@@ -47,7 +69,14 @@ export function EditorPage() {
     return (
       <EditorEmptyState
         onUpload={() => setSource({ type: 'freeform', name: 'My Meme' })}
-        onSelectTemplate={(name) => setSource({ type: 'template', name })}
+        onSelectTemplate={(template: SelectedTemplate) =>
+          setSource({
+            type: 'template',
+            name: template.name,
+            templateId: template.id,
+            blankImageUrl: template.blankImageUrl,
+          })
+        }
       />
     )
   }
@@ -55,7 +84,7 @@ export function EditorPage() {
   function startOver() {
     setSource(null)
     setSavedMeta(null)
-    setSelected(false)
+    setSelectedFieldId(null)
     if (creationId) navigate('/')
   }
 
@@ -72,8 +101,14 @@ export function EditorPage() {
   const defaultTags = dialogMode === 'saveAs' && savedMeta ? savedMeta.tags : []
 
   function handleDialogSave(name: string, tags: string[]) {
+    const activeSource = source! // guaranteed non-null: this handler only runs once `source` is set (see the `!source` early return above)
     createCreation.mutate(
-      { name, tags, sourceType: source!.type, templateId: null },
+      {
+        name,
+        tags,
+        sourceType: activeSource.type,
+        templateId: activeSource.type === 'template' ? activeSource.templateId : null,
+      },
       {
         onSuccess: (row) => {
           setSavedMeta({ id: row.id, name: row.name, tags: row.tags })
@@ -88,17 +123,29 @@ export function EditorPage() {
     updateCreation.mutate({ id: savedMeta.id, name: savedMeta.name, tags: savedMeta.tags })
   }
 
+  const selectedField = fields.find((f) => f.id === selectedFieldId)
+  const templateRow = source.type === 'template' ? allTemplates.find((t) => t.id === source.templateId) : undefined
+
   return (
     <div className="p-8">
       <h2 className="mb-3 text-lg font-semibold">{savedMeta ? savedMeta.name : 'Editor'}</h2>
 
-      <div className="relative min-h-[320px] rounded-lg bg-[repeating-conic-gradient(#00000010_0%_25%,transparent_0%_50%)] bg-[length:20px_20px]">
-        <div
-          className="absolute inset-5 flex items-center justify-center border border-border bg-muted text-sm text-muted-foreground"
-          onClick={() => setSelected(false)}
-        >
-          {source.name} {source.type === 'template' ? 'template (blank)' : ''}
-        </div>
+      <div className="relative mx-auto max-w-md rounded-lg bg-[repeating-conic-gradient(#00000010_0%_25%,transparent_0%_50%)] bg-[length:20px_20px]">
+        {source.type === 'template' ? (
+          <img
+            src={source.blankImageUrl}
+            alt={source.name}
+            className="block w-full cursor-pointer"
+            onClick={() => setSelectedFieldId(null)}
+          />
+        ) : (
+          <div
+            className="flex min-h-[320px] items-center justify-center border border-border bg-muted text-sm text-muted-foreground"
+            onClick={() => setSelectedFieldId(null)}
+          >
+            {source.name}
+          </div>
+        )}
 
         <div className="absolute right-2.5 top-2.5 flex gap-1.5">
           <Button size="sm" variant="outline" onClick={startOver}>
@@ -136,17 +183,29 @@ export function EditorPage() {
           )}
         </div>
 
-        <div
-          className="absolute left-1/2 top-[36%] w-44 -translate-x-1/2 cursor-pointer border-[1.5px] border-blue-500 bg-white/90 p-1.5 text-center text-sm font-bold text-black"
-          onClick={(e) => {
-            e.stopPropagation()
-            setSelected(true)
-          }}
-        >
-          TOP TEXT GOES HERE
-        </div>
+        {source.type === 'template' &&
+          templateRow &&
+          fields.map((field) => (
+            <div
+              key={field.id}
+              className="absolute cursor-pointer overflow-hidden border-[1.5px] border-blue-500 bg-white/90 p-1 text-center font-bold text-black"
+              style={{
+                left: `${(field.position_x / templateRow.image_width) * 100}%`,
+                top: `${(field.position_y / templateRow.image_height) * 100}%`,
+                width: `${(field.width / templateRow.image_width) * 100}%`,
+                height: `${(field.height / templateRow.image_height) * 100}%`,
+                fontSize: `${field.font_size}px`,
+              }}
+              onClick={(e) => {
+                e.stopPropagation()
+                setSelectedFieldId(field.id)
+              }}
+            >
+              {field.label}
+            </div>
+          ))}
 
-        {selected && (
+        {selectedField && (
           <div className="absolute left-1/2 top-1/2 -translate-x-1/2">
             <PropertyBar />
           </div>

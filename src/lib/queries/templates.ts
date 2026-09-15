@@ -11,3 +11,19 @@ export function useTemplates() {
     },
   })
 }
+
+export function useTemplateFields(templateId: string | undefined) {
+  return useQuery({
+    queryKey: ['template_fields', templateId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('template_fields')
+        .select('*')
+        .eq('template_id', templateId!)
+        .order('order_index', { ascending: true })
+      if (error) throw error
+      return data
+    },
+    enabled: !!templateId,
+  })
+}

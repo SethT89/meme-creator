@@ -118,6 +118,8 @@ export type Database = {
           created_by: string
           example_image_url: string
           id: string
+          image_height: number
+          image_width: number
           name: string
         }
         Insert: {
@@ -126,6 +128,8 @@ export type Database = {
           created_by?: string
           example_image_url: string
           id?: string
+          image_height: number
+          image_width: number
           name: string
         }
         Update: {
@@ -134,6 +138,8 @@ export type Database = {
           created_by?: string
           example_image_url?: string
           id?: string
+          image_height?: number
+          image_width?: number
           name?: string
         }
         Relationships: []

@@ -1,14 +1,21 @@
-// Template names are hardcoded placeholders. The admin add-template flow
-// (which would make these real, admin-created rows) is a separate,
-// not-yet-built sub-project — see docs/superpowers/specs/2026-09-15-app-ui-ux-design.md.
-const PLACEHOLDER_TEMPLATES = ['Drake', 'Distracted Boyfriend', 'Expanding Brain', 'Two Buttons']
+import { useTemplates } from '../../lib/queries/templates'
+
+export interface SelectedTemplate {
+  id: string
+  name: string
+  blankImageUrl: string
+  imageWidth: number
+  imageHeight: number
+}
 
 export interface EditorEmptyStateProps {
   onUpload: () => void
-  onSelectTemplate: (name: string) => void
+  onSelectTemplate: (template: SelectedTemplate) => void
 }
 
 export function EditorEmptyState({ onUpload, onSelectTemplate }: EditorEmptyStateProps) {
+  const { data: templates = [], isLoading } = useTemplates()
+
   return (
     <div className="p-8">
       <h2 className="text-lg font-semibold">Start a New Meme</h2>
@@ -24,15 +31,31 @@ export function EditorEmptyState({ onUpload, onSelectTemplate }: EditorEmptyStat
       </button>
 
       <p className="mb-2 text-xs uppercase text-muted-foreground">— or choose a template —</p>
+
+      {!isLoading && templates.length === 0 && (
+        <p className="text-sm text-muted-foreground">
+          No templates yet — the admin add-template flow isn't built yet, so these have to be seeded by hand for now.
+        </p>
+      )}
+
       <div className="grid grid-cols-4 gap-2.5">
-        {PLACEHOLDER_TEMPLATES.map((name) => (
+        {templates.map((t) => (
           <button
-            key={name}
+            key={t.id}
             type="button"
-            onClick={() => onSelectTemplate(name)}
-            className="flex h-20 items-end rounded-md bg-muted p-1.5 text-left text-xs"
+            onClick={() =>
+              onSelectTemplate({
+                id: t.id,
+                name: t.name,
+                blankImageUrl: t.blank_image_url,
+                imageWidth: t.image_width,
+                imageHeight: t.image_height,
+              })
+            }
+            className="flex h-20 items-end overflow-hidden rounded-md bg-muted bg-cover bg-center p-1.5 text-left text-xs font-medium text-white [text-shadow:0_1px_2px_rgb(0_0_0_/_0.8)]"
+            style={{ backgroundImage: `url(${t.blank_image_url})` }}
           >
-            {name}
+            {t.name}
           </button>
         ))}
       </div>
