@@ -9,7 +9,7 @@ import { SaveDialog } from './SaveDialog'
 import { useCreation, useCreateCreation, useCreations, useUpdateCreation } from '../../lib/queries/creations'
 import { useTemplates, useTemplateFields } from '../../lib/queries/templates'
 import { nextAvailableName } from '../../lib/creationNaming'
-import { layersFromCanvasData, applyDragDelta } from '../../lib/layers'
+import { layersFromCanvasData, applyDragDelta, applyResizeDelta } from '../../lib/layers'
 import type { Layer } from '../../lib/layers'
 import type { Json } from '../../types/database'
 
@@ -48,6 +48,9 @@ export function EditorPage() {
     layerStartY: number
     moved: boolean
   } | null>(null)
+  const resizeState = useRef<{ id: string; startX: number; startY: number; layerStartWidth: number; layerStartHeight: number } | null>(
+    null,
+  )
 
   // When editing an existing creation, sync local state from it the first time
   // it loads for this id — done during render (not in an effect) so it doesn't
@@ -161,6 +164,33 @@ export function EditorPage() {
 
   function handlePointerUp() {
     dragState.current = null
+  }
+
+  function handleResizePointerDown(e: ReactPointerEvent<HTMLDivElement>, layer: Layer) {
+    e.stopPropagation()
+    resizeState.current = { id: layer.id, startX: e.clientX, startY: e.clientY, layerStartWidth: layer.width, layerStartHeight: layer.height }
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+  }
+
+  function handleResizePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    e.stopPropagation()
+    const resize = resizeState.current
+    if (!resize || !templateRow || !imgRef.current) return
+    const deltaXPx = e.clientX - resize.startX
+    const deltaYPx = e.clientY - resize.startY
+    const displayScale = imgRef.current.getBoundingClientRect().width / templateRow.image_width
+    setLayers((prev) =>
+      prev.map((l) =>
+        l.id === resize.id
+          ? applyResizeDelta({ ...l, width: resize.layerStartWidth, height: resize.layerStartHeight }, deltaXPx, deltaYPx, displayScale)
+          : l,
+      ),
+    )
+  }
+
+  function handleResizePointerUp(e: ReactPointerEvent<HTMLDivElement>) {
+    e.stopPropagation()
+    resizeState.current = null
   }
 
   function handleChangeFontSize(layerId: string, px: number) {
@@ -301,7 +331,13 @@ export function EditorPage() {
                         left: `${leftPct}%`,
                         top: `${topPct}%`,
                         width: `${widthPct}%`,
-                        height: `${heightPct}%`,
+                        // heightAuto (the default): no explicit height, so the
+                        // box grows to fit wrapped text instead of clipping it
+                        // — a bigger font or more text is never silently cut
+                        // off. Dragging the resize handle below sets an
+                        // explicit height and turns this off permanently for
+                        // that box, same as any ordinary text box.
+                        ...(layer.heightAuto ? {} : { height: `${heightPct}%` }),
                         fontSize: `calc(${fontSizeCqw} * 1cqw)`,
                       }}
                       onPointerDown={(e) => handlePointerDown(e, layer)}
@@ -310,6 +346,15 @@ export function EditorPage() {
                       onClick={(e) => e.stopPropagation()}
                     >
                       {layer.label}
+                      {selectedFieldId === layer.id && (
+                        <div
+                          className="absolute bottom-0 right-0 h-3 w-3 cursor-nwse-resize touch-none rounded-tl bg-blue-500"
+                          onPointerDown={(e) => handleResizePointerDown(e, layer)}
+                          onPointerMove={handleResizePointerMove}
+                          onPointerUp={handleResizePointerUp}
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      )}
                     </div>
 
                     {selectedFieldId === layer.id && (

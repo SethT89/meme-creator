@@ -219,4 +219,41 @@ describe('EditorPage', () => {
     await userEvent.click(await screen.findByText('Caption 1'))
     expect(screen.getByText(/size: huge/i)).toBeInTheDocument()
   })
+
+  it('a freshly seeded box has no explicit height (heightAuto) so wrapped text is never clipped', async () => {
+    renderEditor()
+    await userEvent.click(await screen.findByText('Two Buttons'))
+
+    expect(screen.getByText('Caption 1')).not.toHaveStyle({ height: expect.anything() })
+  })
+
+  it('a box loaded with heightAuto: false from a saved creation keeps its explicit height', async () => {
+    savedRows.push({
+      id: 'existing-3',
+      name: 'Two Buttons 3',
+      tags: [],
+      source_type: 'template',
+      template_id: 'tmpl-1',
+      canvas_data: {
+        layers: [{ id: 'f1', label: 'Caption 1', x: 30, y: 50, width: 220, height: 110, fontSize: 22, heightAuto: false }],
+      },
+    })
+
+    renderEditor('/editor/existing-3')
+
+    expect(await screen.findByText('Caption 1')).toHaveStyle({ height: '12.114537444933921%' })
+  })
+
+  it('shows a resize handle only for the selected box', async () => {
+    renderEditor()
+    await userEvent.click(await screen.findByText('Two Buttons'))
+
+    expect(document.querySelector('.cursor-nwse-resize')).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByText('Caption 1'))
+    expect(document.querySelector('.cursor-nwse-resize')).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('img', { name: 'Two Buttons' }))
+    expect(document.querySelector('.cursor-nwse-resize')).not.toBeInTheDocument()
+  })
 })
