@@ -366,7 +366,7 @@ export function EditorPage() {
           </div>
         </div>
 
-        <div className="flex flex-1 items-start justify-center overflow-auto">
+        <div className="flex min-h-0 flex-1 items-start justify-center overflow-auto">
           <div
             // sm:mr-12 sm:mb-4 reserve exactly the room CanvasFab needs
             // outside this box's own right/bottom edges (it matches the
@@ -385,11 +385,35 @@ export function EditorPage() {
                 ref={imgRef}
                 src={source.blankImageUrl}
                 alt={source.name}
-                // No explicit width/height — the browser scales the image down
-                // to fit within these bounds using its own intrinsic aspect
-                // ratio, so portrait/landscape/square templates all render
-                // undistorted regardless of viewport width.
-                className="block max-h-[65vh] w-auto max-w-full"
+                // No explicit width/height attributes — sized entirely via
+                // CSS below. An explicit aspect-ratio (once templateRow is
+                // known) keeps sm:min-h-[240px] below from distorting the
+                // image on its own — without a locked ratio, a height floor
+                // and max-w-full can each win independently, stretching
+                // width and height out of proportion instead of scaling
+                // together.
+                style={templateRow ? { aspectRatio: `${templateRow.image_width} / ${templateRow.image_height}` } : undefined}
+                // max-h-[65vh] is the fallback before templateRow (and its
+                // real aspect ratio) has loaded. Once it has, sm:max-h-
+                // [calc(100vh-19rem)] replaces the 65vh guess with the
+                // actual available height in this layout (measured live:
+                // header + toolbar + padding + margins + CanvasFab's own
+                // reserved margin below always total 19rem here) — 65vh is
+                // the wrong shape of formula for "fill available space" (it
+                // scales at 0.65x viewport height while the real budget
+                // scales at 1x minus a constant, so it only matches by
+                // coincidence at one specific window height).
+                // sm:min-h-[240px] is the floor past which the image stops
+                // scaling down and this area's overflow-auto (or, on a short
+                // enough viewport, the page itself) scrolls instead — sm+
+                // only: below that width the image is already width-bound
+                // (portrait templates on a narrow phone), and forcing a
+                // height floor there fights max-w-full for control of the
+                // box and distorts it (confirmed live — the two together
+                // rendered a visibly squashed template under 640px). A short
+                // *landscape* phone still gets the floor, since landscape
+                // width is almost always above the sm breakpoint.
+                className="block max-h-[65vh] w-auto max-w-full sm:max-h-[calc(100vh-19rem)] sm:min-h-[240px]"
               />
             )}
             {source?.type === 'freeform' && (
