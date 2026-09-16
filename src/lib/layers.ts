@@ -27,3 +27,31 @@ export function sizeLabel(fontSize: number): string {
   const preset = SIZE_PRESETS.find((p) => p.px === fontSize)
   return preset ? preset.label : `${fontSize}px`
 }
+
+interface TemplateFieldRow {
+  id: string
+  label: string
+  position_x: number
+  position_y: number
+  width: number
+  height: number
+  font_size: number
+}
+
+export function initialLayersFromFields(fields: TemplateFieldRow[]): Layer[] {
+  return fields.map((f) => ({
+    id: f.id,
+    label: f.label,
+    x: f.position_x,
+    y: f.position_y,
+    width: f.width,
+    height: f.height,
+    fontSize: f.font_size,
+  }))
+}
+
+export function layersFromCanvasData(canvasData: unknown, fallbackFields: TemplateFieldRow[]): Layer[] {
+  const layers = (canvasData as { layers?: Layer[] } | null | undefined)?.layers
+  if (layers && layers.length > 0) return layers
+  return initialLayersFromFields(fallbackFields)
+}
