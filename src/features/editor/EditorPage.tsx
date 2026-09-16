@@ -450,7 +450,14 @@ export function EditorPage() {
                       onKeyDown={(e) => handleLabelKeyDown(e, layer.id)}
                     >
                       {!isEditing && layer.label}
+                      {/* Hidden while editing: these render as children of
+                          the contentEditable box, and the browser's native
+                          editing engine can restructure/move child nodes
+                          during text selection — which then breaks React's
+                          own bookkeeping of them. Resizing mid-type isn't a
+                          real use case anyway; finish editing first. */}
                       {isSelected &&
+                        !isEditing &&
                         RESIZE_HANDLES.map((handle) => (
                           <div
                             key={handle.key}
