@@ -39,11 +39,16 @@ export function AppShell() {
           if content inside grows taller than that, the panel (and page) just
           grows with it instead of clipping. */}
       <main className="mx-4 mb-4 flex-1 rounded-2xl bg-background shadow-[0_14px_32px_-10px_rgba(15,23,42,0.25)] sm:mx-8 sm:mb-8">
-        {/* Shared here, not per-page — every routed page's heading/content
-            lands at this same left position and width regardless of which
-            page it is, so switching the header toggle never shifts it.
-            Left-aligned (no mx-auto) rather than centered as a narrow column. */}
-        <div className="max-w-2xl p-8">
+        {/* p-8 (not also max-w-2xl) is what's shared across every page now —
+            that's what keeps the left-edge position consistent when
+            switching the header toggle, which is all the earlier fix for
+            this was actually about. Width is each page's own decision again:
+            Gallery keeps a centered max-w-2xl column, the builder page needs
+            the full available width for its sidebar+canvas layout. flex
+            flex-col h-full lets a page opt into filling all remaining
+            height (flex-1 on its own root) without forcing that on pages
+            that don't need it. */}
+        <div className="flex h-full flex-col p-8">
           <Outlet />
         </div>
       </main>
