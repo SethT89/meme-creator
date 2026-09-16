@@ -1,18 +1,47 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { PropertyBar } from './PropertyBar'
 
 describe('PropertyBar', () => {
-  it('shows a size dropdown with presets, defaulting to Medium', async () => {
-    render(<PropertyBar />)
-
+  it('shows the current size as a preset name when it matches one exactly', () => {
+    render(<PropertyBar fontSize={36} onChangeFontSize={() => {}} onDelete={() => {}} />)
     expect(screen.getByText(/size: medium/i)).toBeInTheDocument()
-    await userEvent.click(screen.getByText(/size: medium/i))
-    expect(screen.getByText('Extra Large')).toBeInTheDocument()
+  })
 
+  it('shows the current size as a raw px label when it matches no preset', () => {
+    render(<PropertyBar fontSize={22} onChangeFontSize={() => {}} onDelete={() => {}} />)
+    expect(screen.getByText(/size: 22px/i)).toBeInTheDocument()
+  })
+
+  it("clicking a preset calls onChangeFontSize with that preset's px value and closes the panel", async () => {
+    const onChangeFontSize = vi.fn()
+    render(<PropertyBar fontSize={36} onChangeFontSize={onChangeFontSize} onDelete={() => {}} />)
+
+    await userEvent.click(screen.getByText(/size: medium/i))
     await userEvent.click(screen.getByText('Large'))
-    expect(screen.getByText(/size: large/i)).toBeInTheDocument()
+
+    expect(onChangeFontSize).toHaveBeenCalledWith(48)
     expect(screen.queryByText('Extra Large')).not.toBeInTheDocument()
+  })
+
+  it('typing a custom size and pressing Enter calls onChangeFontSize with the clamped value', async () => {
+    const onChangeFontSize = vi.fn()
+    render(<PropertyBar fontSize={36} onChangeFontSize={onChangeFontSize} onDelete={() => {}} />)
+
+    await userEvent.click(screen.getByText(/size: medium/i))
+    const input = screen.getByLabelText(/custom font size/i)
+    await userEvent.clear(input)
+    await userEvent.type(input, '9999{enter}')
+
+    expect(onChangeFontSize).toHaveBeenCalledWith(300)
+  })
+
+  it('clicking Delete calls onDelete', async () => {
+    const onDelete = vi.fn()
+    render(<PropertyBar fontSize={36} onChangeFontSize={() => {}} onDelete={onDelete} />)
+
+    await userEvent.click(screen.getByText('Delete'))
+    expect(onDelete).toHaveBeenCalled()
   })
 })
