@@ -6,6 +6,12 @@ export interface Layer {
   width: number
   height: number
   fontSize: number
+  // true (the default): height isn't rendered as a fixed box dimension —
+  // the box grows to fit wrapped text instead, so a bigger font or more
+  // text never gets silently clipped. Becomes false the moment a user
+  // drags the resize handle, at which point their chosen height is fixed
+  // and text wraps/clips within it like any ordinary text box.
+  heightAuto: boolean
 }
 
 export const SIZE_PRESETS: { label: string; px: number }[] = [
@@ -47,12 +53,17 @@ export function initialLayersFromFields(fields: TemplateFieldRow[]): Layer[] {
     width: f.width,
     height: f.height,
     fontSize: f.font_size,
+    heightAuto: true,
   }))
 }
 
 export function layersFromCanvasData(canvasData: unknown, fallbackFields: TemplateFieldRow[]): Layer[] {
   const layers = (canvasData as { layers?: Layer[] } | null | undefined)?.layers
-  if (layers && layers.length > 0) return layers
+  if (layers && layers.length > 0) {
+    // Saved before heightAuto existed: default it to true rather than
+    // leaving it undefined, so every in-memory Layer is fully populated.
+    return layers.map((l) => ({ ...l, heightAuto: l.heightAuto ?? true }))
+  }
   return initialLayersFromFields(fallbackFields)
 }
 
@@ -69,4 +80,12 @@ export function applyDragDelta(
   const centerX = Math.min(imageWidth, Math.max(0, layer.x + layer.width / 2 + deltaX))
   const centerY = Math.min(imageHeight, Math.max(0, layer.y + layer.height / 2 + deltaY))
   return { ...layer, x: centerX - layer.width / 2, y: centerY - layer.height / 2 }
+}
+
+export const MIN_LAYER_SIZE = 20
+
+export function applyResizeDelta(layer: Layer, deltaXPx: number, deltaYPx: number, displayScale: number): Layer {
+  const width = Math.max(MIN_LAYER_SIZE, layer.width + deltaXPx / displayScale)
+  const height = Math.max(MIN_LAYER_SIZE, layer.height + deltaYPx / displayScale)
+  return { ...layer, width, height, heightAuto: false }
 }
