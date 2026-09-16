@@ -117,10 +117,12 @@ describe('EditorPage', () => {
     expect(screen.getByRole('button', { name: 'Open add menu' })).toBeInTheDocument()
   })
 
-  it('does not show the add-menu FAB until a template is loaded', async () => {
+  it('shows the add-menu FAB on the blank canvas too, not just once a template is loaded', async () => {
     renderEditor()
     await screen.findByRole('button', { name: 'Two Buttons' }) // wait for sidebar to load
-    expect(screen.queryByRole('button', { name: 'Open add menu' })).not.toBeInTheDocument()
+    // Blank canvas — no template picked yet — is how a user starts from
+    // scratch (upload/add) via the FAB, so it must be visible here too.
+    expect(screen.getByRole('button', { name: 'Open add menu' })).toBeInTheDocument()
   })
 
   it('selecting one field shows the property bar for it; selecting another moves it; clicking the image hides it', async () => {

@@ -546,7 +546,11 @@ export function EditorPage() {
                 })}
               </div>
             )}
-            {source?.type === 'template' && <CanvasFab />}
+            {/* Shown on the blank canvas too (source === null), not just once
+                a template is loaded — it's the entry point for starting from
+                scratch (upload an image, add a sticker/text) as well as for
+                adding to a loaded template. */}
+            <CanvasFab />
           </div>
         </div>
       </div>
