@@ -9,6 +9,7 @@ import {
   layersFromCanvasData,
   applyDragDelta,
   applyResizeDelta,
+  createBlankTextLayer,
   MIN_LAYER_SIZE,
 } from './layers'
 import type { Layer } from './layers'
@@ -64,6 +65,24 @@ describe('initialLayersFromFields', () => {
 
   it('returns an empty array for no fields', () => {
     expect(initialLayersFromFields([])).toEqual([])
+  })
+})
+
+describe('createBlankTextLayer', () => {
+  it('creates a blank, centered, auto-height layer sized relative to the image', () => {
+    const layer = createBlankTextLayer(600, 908)
+    expect(layer.label).toBe('')
+    expect(layer.fontSize).toBe(36)
+    expect(layer.heightAuto).toBe(true)
+    expect(layer.width).toBe(240) // 40% of image width
+    expect(layer.x).toBe((600 - layer.width) / 2) // horizontally centered
+    expect(layer.y).toBe((908 - layer.height) / 2) // vertically centered
+  })
+
+  it('gives each call a unique id', () => {
+    const a = createBlankTextLayer(600, 908)
+    const b = createBlankTextLayer(600, 908)
+    expect(a.id).not.toBe(b.id)
   })
 })
 
