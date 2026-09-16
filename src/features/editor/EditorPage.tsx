@@ -1,4 +1,5 @@
-import { Fragment, useState } from 'react'
+import { Fragment, useRef, useState } from 'react'
+import type { PointerEvent as ReactPointerEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Button } from '../../components/ui/button'
 import { EditorEmptyState } from './EditorEmptyState'
@@ -8,6 +9,8 @@ import { SaveDialog } from './SaveDialog'
 import { useCreation, useCreateCreation, useCreations, useUpdateCreation } from '../../lib/queries/creations'
 import { useTemplates, useTemplateFields } from '../../lib/queries/templates'
 import { nextAvailableName } from '../../lib/creationNaming'
+import { layersFromCanvasData, applyDragDelta } from '../../lib/layers'
+import type { Layer } from '../../lib/layers'
 
 type Source =
   | { type: 'freeform'; name: string }
@@ -33,6 +36,17 @@ export function EditorPage() {
   const [dialogKey, setDialogKey] = useState(0)
 
   const { data: fields = [] } = useTemplateFields(source?.type === 'template' ? source.templateId : undefined)
+  const [layers, setLayers] = useState<Layer[]>([])
+  const [layersSeededFor, setLayersSeededFor] = useState<string | undefined>(undefined)
+  const imgRef = useRef<HTMLImageElement>(null)
+  const dragState = useRef<{
+    id: string
+    startX: number
+    startY: number
+    layerStartX: number
+    layerStartY: number
+    moved: boolean
+  } | null>(null)
 
   // When editing an existing creation, sync local state from it the first time
   // it loads for this id — done during render (not in an effect) so it doesn't
@@ -61,6 +75,18 @@ export function EditorPage() {
     }
   }
 
+  // Layers need `fields`, a separate async query keyed off source.templateId,
+  // so they're seeded independently of source/savedMeta above rather than in
+  // the same block — the seed key is the creation's id when reopening a saved
+  // creation, or 'new:'+templateId when starting fresh.
+  if (source?.type === 'template' && fields.length > 0) {
+    const seedKey = existingCreation?.id ?? 'new:' + source.templateId
+    if (layersSeededFor !== seedKey) {
+      setLayersSeededFor(seedKey)
+      setLayers(layersFromCanvasData(existingCreation?.canvas_data, fields))
+    }
+  }
+
   if (creationId && loadingExisting) {
     return <p className="text-sm text-muted-foreground">Loading…</p>
   }
@@ -81,10 +107,14 @@ export function EditorPage() {
     )
   }
 
+  const templateRow = source.type === 'template' ? allTemplates.find((t) => t.id === source.templateId) : undefined
+
   function startOver() {
     setSource(null)
     setSavedMeta(null)
     setSelectedFieldId(null)
+    setLayers([])
+    setLayersSeededFor(undefined)
     if (creationId) navigate('/')
   }
 
@@ -92,6 +122,53 @@ export function EditorPage() {
     setDialogMode(mode)
     setDialogOpen(true)
     setDialogKey((k) => k + 1) // forces SaveDialog to remount with fresh internal state each time it opens
+  }
+
+  function handlePointerDown(e: ReactPointerEvent<HTMLDivElement>, layer: Layer) {
+    e.stopPropagation()
+    setSelectedFieldId(layer.id)
+    dragState.current = { id: layer.id, startX: e.clientX, startY: e.clientY, layerStartX: layer.x, layerStartY: layer.y, moved: false }
+    // Optional chaining: jsdom (used by the test suite) doesn't implement
+    // setPointerCapture at all — calling it directly would throw and break
+    // every test that clicks a field box. Real browsers always support it.
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+  }
+
+  function handlePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    const drag = dragState.current
+    if (!drag || !templateRow || !imgRef.current) return
+    const deltaXPx = e.clientX - drag.startX
+    const deltaYPx = e.clientY - drag.startY
+    if (!drag.moved && Math.hypot(deltaXPx, deltaYPx) < 4) return
+    drag.moved = true
+    const displayScale = imgRef.current.getBoundingClientRect().width / templateRow.image_width
+    setLayers((prev) =>
+      prev.map((l) =>
+        l.id === drag.id
+          ? applyDragDelta(
+              { ...l, x: drag.layerStartX, y: drag.layerStartY },
+              deltaXPx,
+              deltaYPx,
+              displayScale,
+              templateRow.image_width,
+              templateRow.image_height,
+            )
+          : l,
+      ),
+    )
+  }
+
+  function handlePointerUp() {
+    dragState.current = null
+  }
+
+  function handleChangeFontSize(layerId: string, px: number) {
+    setLayers((prev) => prev.map((l) => (l.id === layerId ? { ...l, fontSize: px } : l)))
+  }
+
+  function handleDeleteLayer(layerId: string) {
+    setLayers((prev) => prev.filter((l) => l.id !== layerId))
+    setSelectedFieldId(null)
   }
 
   const defaultName =
@@ -108,6 +185,7 @@ export function EditorPage() {
         tags,
         sourceType: activeSource.type,
         templateId: activeSource.type === 'template' ? activeSource.templateId : null,
+        canvasData: { layers },
       },
       {
         onSuccess: (row) => {
@@ -120,10 +198,8 @@ export function EditorPage() {
 
   function handleQuickSave() {
     if (!savedMeta) return
-    updateCreation.mutate({ id: savedMeta.id, name: savedMeta.name, tags: savedMeta.tags })
+    updateCreation.mutate({ id: savedMeta.id, name: savedMeta.name, tags: savedMeta.tags, canvasData: { layers } })
   }
-
-  const templateRow = source.type === 'template' ? allTemplates.find((t) => t.id === source.templateId) : undefined
 
   return (
     // Deselects on any click that isn't explicitly stopped from bubbling —
@@ -172,9 +248,10 @@ export function EditorPage() {
       </div>
 
       <div className="flex justify-center">
-        <div className="relative inline-block rounded-lg bg-[repeating-conic-gradient(#00000010_0%_25%,transparent_0%_50%)] bg-[length:20px_20px]">
+        <div className="relative inline-block @container rounded-lg bg-[repeating-conic-gradient(#00000010_0%_25%,transparent_0%_50%)] bg-[length:20px_20px]">
           {source.type === 'template' ? (
             <img
+              ref={imgRef}
               src={source.blankImageUrl}
               alt={source.name}
               // No explicit width/height — the browser scales the image down
@@ -191,32 +268,38 @@ export function EditorPage() {
 
           {source.type === 'template' &&
             templateRow &&
-            fields.map((field) => {
-              const leftPct = (field.position_x / templateRow.image_width) * 100
-              const topPct = (field.position_y / templateRow.image_height) * 100
-              const widthPct = (field.width / templateRow.image_width) * 100
-              const heightPct = (field.height / templateRow.image_height) * 100
+            layers.map((layer) => {
+              const leftPct = (layer.x / templateRow.image_width) * 100
+              const topPct = (layer.y / templateRow.image_height) * 100
+              const widthPct = (layer.width / templateRow.image_width) * 100
+              const heightPct = (layer.height / templateRow.image_height) * 100
+              // font-size scaled to the image's own rendered width via a CSS
+              // container query unit, the same percentage-of-image math the
+              // position/width above already use — otherwise font size would
+              // render as a literal screen-px value regardless of how large
+              // the template is actually displayed.
+              const fontSizeCqw = (layer.fontSize / templateRow.image_width) * 100
 
               return (
-                <Fragment key={field.id}>
+                <Fragment key={layer.id}>
                   <div
-                    className="absolute cursor-pointer overflow-hidden border-[1.5px] border-blue-500 bg-white/90 p-1 text-center font-bold text-black"
+                    className="absolute cursor-grab touch-none overflow-hidden border-[1.5px] border-blue-500 bg-white/90 p-1 text-center font-bold text-black active:cursor-grabbing"
                     style={{
                       left: `${leftPct}%`,
                       top: `${topPct}%`,
                       width: `${widthPct}%`,
                       height: `${heightPct}%`,
-                      fontSize: `${field.font_size}px`,
+                      fontSize: `calc(${fontSizeCqw} * 1cqw)`,
                     }}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setSelectedFieldId(field.id)
-                    }}
+                    onPointerDown={(e) => handlePointerDown(e, layer)}
+                    onPointerMove={handlePointerMove}
+                    onPointerUp={handlePointerUp}
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    {field.label}
+                    {layer.label}
                   </div>
 
-                  {selectedFieldId === field.id && (
+                  {selectedFieldId === layer.id && (
                     <div
                       className="absolute"
                       style={{
@@ -228,7 +311,11 @@ export function EditorPage() {
                       }}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <PropertyBar />
+                      <PropertyBar
+                        fontSize={layer.fontSize}
+                        onChangeFontSize={(px) => handleChangeFontSize(layer.id, px)}
+                        onDelete={() => handleDeleteLayer(layer.id)}
+                      />
                     </div>
                   )}
                 </Fragment>
