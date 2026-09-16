@@ -10,7 +10,7 @@ import { useCreation, useCreateCreation, useCreations, useUpdateCreation } from 
 import { useTemplates, useTemplateFields } from '../../lib/queries/templates'
 import { nextAvailableName } from '../../lib/creationNaming'
 import { layersFromCanvasData, applyDragDelta, applyResizeDelta } from '../../lib/layers'
-import type { Layer } from '../../lib/layers'
+import type { Layer, ResizeSign } from '../../lib/layers'
 import type { Json } from '../../types/database'
 
 type Source =
@@ -18,6 +18,21 @@ type Source =
   | { type: 'template'; name: string; templateId: string; blankImageUrl: string }
   | null
 type SavedMeta = { id: string; name: string; tags: string[] } | null
+
+// The 8 resize handles: 4 corners (control both axes) and 4 edge midpoints
+// (control only their own axis). top/left as CSS percentages position each
+// handle on the box's own edge; translate(-50%,-50%) centers the handle dot
+// on that edge/corner rather than sitting fully inside or outside it.
+const RESIZE_HANDLES: { key: string; top: string; left: string; cursor: string; xSign: ResizeSign; ySign: ResizeSign }[] = [
+  { key: 'tl', top: '0%', left: '0%', cursor: 'nwse-resize', xSign: -1, ySign: -1 },
+  { key: 'tm', top: '0%', left: '50%', cursor: 'ns-resize', xSign: 0, ySign: -1 },
+  { key: 'tr', top: '0%', left: '100%', cursor: 'nesw-resize', xSign: 1, ySign: -1 },
+  { key: 'lm', top: '50%', left: '0%', cursor: 'ew-resize', xSign: -1, ySign: 0 },
+  { key: 'rm', top: '50%', left: '100%', cursor: 'ew-resize', xSign: 1, ySign: 0 },
+  { key: 'bl', top: '100%', left: '0%', cursor: 'nesw-resize', xSign: -1, ySign: 1 },
+  { key: 'bm', top: '100%', left: '50%', cursor: 'ns-resize', xSign: 0, ySign: 1 },
+  { key: 'br', top: '100%', left: '100%', cursor: 'nwse-resize', xSign: 1, ySign: 1 },
+]
 
 export function EditorPage() {
   const { creationId } = useParams<{ creationId?: string }>()
@@ -48,7 +63,7 @@ export function EditorPage() {
     layerStartY: number
     moved: boolean
   } | null>(null)
-  const resizeState = useRef<{ id: string; startX: number; startY: number; layerStartWidth: number; layerStartHeight: number } | null>(
+  const resizeState = useRef<{ id: string; startX: number; startY: number; layerStart: Layer; xSign: ResizeSign; ySign: ResizeSign } | null>(
     null,
   )
 
@@ -166,9 +181,9 @@ export function EditorPage() {
     dragState.current = null
   }
 
-  function handleResizePointerDown(e: ReactPointerEvent<HTMLDivElement>, layer: Layer) {
+  function handleResizePointerDown(e: ReactPointerEvent<HTMLDivElement>, layer: Layer, xSign: ResizeSign, ySign: ResizeSign) {
     e.stopPropagation()
-    resizeState.current = { id: layer.id, startX: e.clientX, startY: e.clientY, layerStartWidth: layer.width, layerStartHeight: layer.height }
+    resizeState.current = { id: layer.id, startX: e.clientX, startY: e.clientY, layerStart: layer, xSign, ySign }
     e.currentTarget.setPointerCapture?.(e.pointerId)
   }
 
@@ -182,7 +197,7 @@ export function EditorPage() {
     setLayers((prev) =>
       prev.map((l) =>
         l.id === resize.id
-          ? applyResizeDelta({ ...l, width: resize.layerStartWidth, height: resize.layerStartHeight }, deltaXPx, deltaYPx, displayScale)
+          ? applyResizeDelta(resize.layerStart, deltaXPx, deltaYPx, displayScale, resize.xSign, resize.ySign)
           : l,
       ),
     )
@@ -323,10 +338,14 @@ export function EditorPage() {
                 // the template is actually displayed.
                 const fontSizeCqw = (layer.fontSize / templateRow.image_width) * 100
 
+                const isSelected = selectedFieldId === layer.id
+
                 return (
                   <Fragment key={layer.id}>
                     <div
-                      className="absolute cursor-grab touch-none overflow-hidden border-[1.5px] border-blue-500 bg-white/90 p-1 text-center font-bold text-black active:cursor-grabbing"
+                      className={`absolute cursor-grab touch-none p-1 text-center font-bold text-black active:cursor-grabbing ${
+                        isSelected ? 'border border-dashed border-gray-400' : 'border border-transparent'
+                      }`}
                       style={{
                         left: `${leftPct}%`,
                         top: `${topPct}%`,
@@ -334,9 +353,9 @@ export function EditorPage() {
                         // heightAuto (the default): no explicit height, so the
                         // box grows to fit wrapped text instead of clipping it
                         // — a bigger font or more text is never silently cut
-                        // off. Dragging the resize handle below sets an
-                        // explicit height and turns this off permanently for
-                        // that box, same as any ordinary text box.
+                        // off. Dragging a resize handle below sets an explicit
+                        // height and turns this off permanently for that box,
+                        // same as any ordinary text box.
                         ...(layer.heightAuto ? {} : { height: `${heightPct}%` }),
                         fontSize: `calc(${fontSizeCqw} * 1cqw)`,
                       }}
@@ -346,18 +365,21 @@ export function EditorPage() {
                       onClick={(e) => e.stopPropagation()}
                     >
                       {layer.label}
-                      {selectedFieldId === layer.id && (
-                        <div
-                          className="absolute bottom-0 right-0 h-3 w-3 cursor-nwse-resize touch-none rounded-tl bg-blue-500"
-                          onPointerDown={(e) => handleResizePointerDown(e, layer)}
-                          onPointerMove={handleResizePointerMove}
-                          onPointerUp={handleResizePointerUp}
-                          onClick={(e) => e.stopPropagation()}
-                        />
-                      )}
+                      {isSelected &&
+                        RESIZE_HANDLES.map((handle) => (
+                          <div
+                            key={handle.key}
+                            className="absolute h-2.5 w-2.5 touch-none rounded-full border border-gray-400 bg-white"
+                            style={{ top: handle.top, left: handle.left, transform: 'translate(-50%, -50%)', cursor: handle.cursor }}
+                            onPointerDown={(e) => handleResizePointerDown(e, layer, handle.xSign, handle.ySign)}
+                            onPointerMove={handleResizePointerMove}
+                            onPointerUp={handleResizePointerUp}
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        ))}
                     </div>
 
-                    {selectedFieldId === layer.id && (
+                    {isSelected && (
                       <div
                         className="absolute"
                         style={{

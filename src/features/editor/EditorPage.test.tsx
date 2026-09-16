@@ -244,16 +244,17 @@ describe('EditorPage', () => {
     expect(await screen.findByText('Caption 1')).toHaveStyle({ height: '12.114537444933921%' })
   })
 
-  it('shows a resize handle only for the selected box', async () => {
+  it('shows 8 resize handles only for the selected box', async () => {
     renderEditor()
     await userEvent.click(await screen.findByText('Two Buttons'))
 
-    expect(document.querySelector('.cursor-nwse-resize')).not.toBeInTheDocument()
+    const handleSelector = '.rounded-full.border-gray-400'
+    expect(document.querySelectorAll(handleSelector)).toHaveLength(0)
 
     await userEvent.click(screen.getByText('Caption 1'))
-    expect(document.querySelector('.cursor-nwse-resize')).toBeInTheDocument()
+    expect(document.querySelectorAll(handleSelector)).toHaveLength(8)
 
     await userEvent.click(screen.getByRole('img', { name: 'Two Buttons' }))
-    expect(document.querySelector('.cursor-nwse-resize')).not.toBeInTheDocument()
+    expect(document.querySelectorAll(handleSelector)).toHaveLength(0)
   })
 })
