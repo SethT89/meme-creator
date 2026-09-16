@@ -55,3 +55,18 @@ export function layersFromCanvasData(canvasData: unknown, fallbackFields: Templa
   if (layers && layers.length > 0) return layers
   return initialLayersFromFields(fallbackFields)
 }
+
+export function applyDragDelta(
+  layer: Layer,
+  deltaXPx: number,
+  deltaYPx: number,
+  displayScale: number,
+  imageWidth: number,
+  imageHeight: number,
+): Layer {
+  const deltaX = deltaXPx / displayScale
+  const deltaY = deltaYPx / displayScale
+  const centerX = Math.min(imageWidth, Math.max(0, layer.x + layer.width / 2 + deltaX))
+  const centerY = Math.min(imageHeight, Math.max(0, layer.y + layer.height / 2 + deltaY))
+  return { ...layer, x: centerX - layer.width / 2, y: centerY - layer.height / 2 }
+}

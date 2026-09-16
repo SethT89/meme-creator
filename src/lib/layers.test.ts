@@ -7,7 +7,9 @@ import {
   sizeLabel,
   initialLayersFromFields,
   layersFromCanvasData,
+  applyDragDelta,
 } from './layers'
+import type { Layer } from './layers'
 
 describe('SIZE_PRESETS', () => {
   it('defines five presets in ascending px order', () => {
@@ -77,5 +79,37 @@ describe('layersFromCanvasData', () => {
 
   it('falls back to deriving from template fields when canvas_data.layers is an empty array', () => {
     expect(layersFromCanvasData({ layers: [] }, fallbackFields)).toEqual(initialLayersFromFields(fallbackFields))
+  })
+})
+
+describe('applyDragDelta', () => {
+  const layer: Layer = { id: 'f1', label: 'Caption 1', x: 100, y: 100, width: 200, height: 100, fontSize: 32 }
+
+  it('moves the layer by the screen delta divided by the display scale', () => {
+    const moved = applyDragDelta(layer, 50, 0, 0.5, 1000, 1000)
+    expect(moved.x).toBe(200)
+    expect(moved.y).toBe(100)
+    expect(moved.width).toBe(200)
+    expect(moved.height).toBe(100)
+  })
+
+  it('clamps so the box center cannot move left of the image', () => {
+    const moved = applyDragDelta(layer, -10000, 0, 1, 1000, 1000)
+    expect(moved.x).toBe(0 - layer.width / 2)
+  })
+
+  it('clamps so the box center cannot move above the image', () => {
+    const moved = applyDragDelta(layer, 0, -10000, 1, 1000, 1000)
+    expect(moved.y).toBe(0 - layer.height / 2)
+  })
+
+  it('clamps so the box center cannot move right of the image', () => {
+    const moved = applyDragDelta(layer, 10000, 0, 1, 1000, 1000)
+    expect(moved.x).toBe(1000 - layer.width / 2)
+  })
+
+  it('clamps so the box center cannot move below the image', () => {
+    const moved = applyDragDelta(layer, 0, 10000, 1, 1000, 1000)
+    expect(moved.y).toBe(1000 - layer.height / 2)
   })
 })
