@@ -12,7 +12,7 @@ import { SaveDialog } from './SaveDialog'
 import { useCreation, useCreateCreation, useCreations, useUpdateCreation } from '../../lib/queries/creations'
 import { useTemplates, useTemplateFields } from '../../lib/queries/templates'
 import { nextAvailableName } from '../../lib/creationNaming'
-import { layersFromCanvasData, applyDragDelta, applyResizeDelta } from '../../lib/layers'
+import { layersFromCanvasData, applyDragDelta, applyResizeDelta, createBlankTextLayer } from '../../lib/layers'
 import type { Layer, ResizeSign } from '../../lib/layers'
 import type { Json } from '../../types/database'
 
@@ -52,6 +52,13 @@ export function EditorPage() {
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null)
   const [editingLayerId, setEditingLayerId] = useState<string | null>(null)
   const editStartLabel = useRef('')
+  // Set (alongside editStartLabel) at every call site that starts a new edit
+  // session, consumed by the contentEditable ref callback below. Needed
+  // because that callback's own "does DOM content differ from layer.label"
+  // check can't tell a brand-new *blank* box (both start at '') apart from
+  // a re-render mid-typing (also already in sync) — without this, a blank
+  // box would never receive its initial focus.
+  const needsEditFocus = useRef(false)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dialogMode, setDialogMode] = useState<'save' | 'saveAs'>('save')
   const [dialogKey, setDialogKey] = useState(0)
@@ -249,7 +256,23 @@ export function EditorPage() {
     e.stopPropagation()
     setSelectedFieldId(layer.id)
     editStartLabel.current = layer.label
+    needsEditFocus.current = true
     setEditingLayerId(layer.id)
+  }
+
+  // CanvasFab's Add Text action. A no-op on the blank canvas (no image yet
+  // to place text on — that's future work, tied to Add Image establishing a
+  // freeform canvas). Same select-and-enter-edit-mode sequence
+  // handleDoubleClick uses, so the new box opens with focus and the cursor
+  // ready to type, exactly like double-clicking an existing one.
+  function handleAddText() {
+    if (!templateRow) return
+    const newLayer = createBlankTextLayer(templateRow.image_width, templateRow.image_height)
+    setLayers((prev) => [...prev, newLayer])
+    setSelectedFieldId(newLayer.id)
+    editStartLabel.current = ''
+    needsEditFocus.current = true
+    setEditingLayerId(newLayer.id)
   }
 
   function handleLabelInput(layerId: string, text: string) {
@@ -539,9 +562,14 @@ export function EditorPage() {
                         ref={
                           isEditing
                             ? (el) => {
-                                if (el && el.textContent !== layer.label) {
+                                // needsEditFocus (set at the two places that start
+                                // an edit session) catches the case textContent
+                                // !== label can't: a brand-new *blank* box, where
+                                // both start at '' and look already "in sync".
+                                if (el && (el.textContent !== layer.label || needsEditFocus.current)) {
                                   el.textContent = layer.label
                                   el.focus()
+                                  needsEditFocus.current = false
                                   // Select the existing text so the first
                                   // keystroke replaces it, like renaming a
                                   // layer in most design tools. Best-effort:
@@ -625,7 +653,7 @@ export function EditorPage() {
                 a template is loaded — it's the entry point for starting from
                 scratch (upload an image, add a sticker/text) as well as for
                 adding to a loaded template. */}
-            <CanvasFab />
+            <CanvasFab onAddText={handleAddText} />
           </div>
         </div>
       </div>
