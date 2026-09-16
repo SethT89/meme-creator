@@ -1,5 +1,5 @@
 import { Fragment, useRef, useState } from 'react'
-import type { PointerEvent as ReactPointerEvent } from 'react'
+import type { PointerEvent as ReactPointerEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Button } from '../../components/ui/button'
 import { EditorEmptyState } from './EditorEmptyState'
@@ -47,6 +47,8 @@ export function EditorPage() {
   const [source, setSource] = useState<Source>(null)
   const [savedMeta, setSavedMeta] = useState<SavedMeta>(null)
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null)
+  const [editingLayerId, setEditingLayerId] = useState<string | null>(null)
+  const editStartLabel = useRef('')
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dialogMode, setDialogMode] = useState<'save' | 'saveAs'>('save')
   const [dialogKey, setDialogKey] = useState(0)
@@ -132,6 +134,7 @@ export function EditorPage() {
     setSource(null)
     setSavedMeta(null)
     setSelectedFieldId(null)
+    setEditingLayerId(null)
     setLayers([])
     setLayersSeededFor(undefined)
     if (creationId) navigate('/')
@@ -145,12 +148,42 @@ export function EditorPage() {
 
   function handlePointerDown(e: ReactPointerEvent<HTMLDivElement>, layer: Layer) {
     e.stopPropagation()
+    // While this box is being edited, a pointerdown inside it is the user
+    // placing a text cursor or selecting text, not moving the box — don't
+    // arm a drag, and don't steal focus away from the contentEditable box.
+    if (editingLayerId === layer.id) return
     setSelectedFieldId(layer.id)
     dragState.current = { id: layer.id, startX: e.clientX, startY: e.clientY, layerStartX: layer.x, layerStartY: layer.y, moved: false }
     // Optional chaining: jsdom (used by the test suite) doesn't implement
     // setPointerCapture at all — calling it directly would throw and break
     // every test that clicks a field box. Real browsers always support it.
     e.currentTarget.setPointerCapture?.(e.pointerId)
+  }
+
+  function handleDoubleClick(e: ReactMouseEvent<HTMLDivElement>, layer: Layer) {
+    e.stopPropagation()
+    setSelectedFieldId(layer.id)
+    editStartLabel.current = layer.label
+    setEditingLayerId(layer.id)
+  }
+
+  function handleLabelInput(layerId: string, text: string) {
+    setLayers((prev) => prev.map((l) => (l.id === layerId ? { ...l, label: text } : l)))
+  }
+
+  function handleLabelBlur() {
+    setEditingLayerId(null)
+  }
+
+  function handleLabelKeyDown(e: ReactKeyboardEvent<HTMLDivElement>, layerId: string) {
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      e.currentTarget.blur()
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      handleLabelInput(layerId, editStartLabel.current)
+      e.currentTarget.blur()
+    }
   }
 
   function handlePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
@@ -339,13 +372,25 @@ export function EditorPage() {
                 const fontSizeCqw = (layer.fontSize / templateRow.image_width) * 100
 
                 const isSelected = selectedFieldId === layer.id
+                const isEditing = editingLayerId === layer.id
 
                 return (
                   <Fragment key={layer.id}>
                     <div
-                      className={`absolute cursor-grab touch-none p-1 text-center font-bold text-black active:cursor-grabbing ${
+                      // Forces a full remount (not a diff) when entering/exiting
+                      // edit mode. While editing, the browser mutates this
+                      // element's real DOM text via native contentEditable
+                      // typing — React never tracks those changes (children
+                      // renders as `false` below). Reconciling back into
+                      // React-owned `{layer.label}` children afterward would
+                      // make React try to diff against DOM it doesn't
+                      // recognize, which can throw. A key change sidesteps
+                      // that entirely: React just discards the old subtree
+                      // and mounts a fresh one.
+                      key={isEditing ? `${layer.id}-edit` : `${layer.id}-view`}
+                      className={`absolute p-1 text-center font-bold text-black ${
                         isSelected ? 'border border-dashed border-gray-400' : 'border border-transparent'
-                      }`}
+                      } ${isEditing ? 'cursor-text' : 'cursor-grab touch-none active:cursor-grabbing'}`}
                       style={{
                         left: `${leftPct}%`,
                         top: `${topPct}%`,
@@ -359,12 +404,52 @@ export function EditorPage() {
                         ...(layer.heightAuto ? {} : { height: `${heightPct}%` }),
                         fontSize: `calc(${fontSizeCqw} * 1cqw)`,
                       }}
+                      // contentEditable while editing, not React `children` —
+                      // React thinks this element's children is just `false`
+                      // (see below) so it never touches the live DOM text via
+                      // reconciliation, which is what would reset the cursor
+                      // to the start on every keystroke. The ref sets the
+                      // starting text once; typing after that is the browser's
+                      // own contentEditable behavior, read back via onInput.
+                      contentEditable={isEditing}
+                      suppressContentEditableWarning
+                      ref={
+                        isEditing
+                          ? (el) => {
+                              if (el && el.textContent !== layer.label) {
+                                el.textContent = layer.label
+                                el.focus()
+                                // Select the existing text so the first
+                                // keystroke replaces it, like renaming a
+                                // layer in most design tools. Best-effort:
+                                // a stale Range/Selection from a previous
+                                // edit session can throw here in some
+                                // environments — editing still works fine
+                                // without the selection, so don't let it
+                                // block entering edit mode.
+                                try {
+                                  const range = document.createRange()
+                                  range.selectNodeContents(el)
+                                  const selection = window.getSelection()
+                                  selection?.removeAllRanges()
+                                  selection?.addRange(range)
+                                } catch {
+                                  // ignore — select-all-on-edit is a convenience, not a requirement
+                                }
+                              }
+                            }
+                          : undefined
+                      }
                       onPointerDown={(e) => handlePointerDown(e, layer)}
                       onPointerMove={handlePointerMove}
                       onPointerUp={handlePointerUp}
                       onClick={(e) => e.stopPropagation()}
+                      onDoubleClick={(e) => handleDoubleClick(e, layer)}
+                      onInput={(e) => handleLabelInput(layer.id, e.currentTarget.textContent ?? '')}
+                      onBlur={handleLabelBlur}
+                      onKeyDown={(e) => handleLabelKeyDown(e, layer.id)}
                     >
-                      {layer.label}
+                      {!isEditing && layer.label}
                       {isSelected &&
                         RESIZE_HANDLES.map((handle) => (
                           <div

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -256,5 +256,77 @@ describe('EditorPage', () => {
 
     await userEvent.click(screen.getByRole('img', { name: 'Two Buttons' }))
     expect(document.querySelectorAll(handleSelector)).toHaveLength(0)
+  })
+
+  it('double-clicking a box enters edit mode (contentEditable)', async () => {
+    renderEditor()
+    await userEvent.click(await screen.findByText('Two Buttons'))
+
+    const box = screen.getByText('Caption 1')
+    expect(box).not.toHaveAttribute('contenteditable', 'true')
+
+    await userEvent.dblClick(box)
+    // Entering edit mode remounts the box (see the `key` comment in
+    // EditorPage.tsx) so React never has to reconcile against DOM the
+    // browser's native contentEditable typing mutated behind its back —
+    // re-query rather than reuse the pre-edit `box` reference, which is
+    // now a detached node.
+    expect(screen.getByText('Caption 1')).toHaveAttribute('contenteditable', 'true')
+  })
+
+  it('dragging while editing text does not move the box', async () => {
+    renderEditor()
+    await userEvent.click(await screen.findByText('Two Buttons'))
+    await userEvent.dblClick(screen.getByText('Caption 1'))
+    const editingBox = screen.getByText('Caption 1')
+
+    const styleBefore = editingBox.getAttribute('style')
+    fireEvent.pointerDown(editingBox, { clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(editingBox, { clientX: 100, clientY: 100 })
+    fireEvent.pointerUp(editingBox)
+
+    expect(editingBox.getAttribute('style')).toBe(styleBefore)
+  })
+
+  it('typing new text and pressing Enter commits it and exits edit mode', async () => {
+    renderEditor()
+    await userEvent.click(await screen.findByText('Two Buttons'))
+    await userEvent.dblClick(screen.getByText('Caption 1'))
+
+    await userEvent.type(screen.getByText('Caption 1'), 'X')
+    await userEvent.keyboard('{Enter}')
+
+    const committed = screen.getByText(/Caption 1X/)
+    expect(committed).toBeInTheDocument()
+    expect(committed).not.toHaveAttribute('contenteditable', 'true')
+  })
+
+  it('typing new text and pressing Escape reverts it and exits edit mode', async () => {
+    renderEditor()
+    await userEvent.click(await screen.findByText('Two Buttons'))
+    await userEvent.dblClick(screen.getByText('Caption 1'))
+
+    await userEvent.type(screen.getByText('Caption 1'), 'X')
+    await userEvent.keyboard('{Escape}')
+
+    expect(screen.getByText('Caption 1')).toBeInTheDocument()
+    expect(screen.queryByText(/Caption 1X/)).not.toBeInTheDocument()
+  })
+
+  it('edited text persists through save', async () => {
+    renderEditor()
+    await userEvent.click(await screen.findByText('Two Buttons'))
+    await userEvent.dblClick(screen.getByText('Caption 1'))
+    await userEvent.type(screen.getByText('Caption 1'), 'X')
+    await userEvent.keyboard('{Enter}')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Save to Gallery' }))
+    const dialog = screen.getByRole('dialog')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+    await screen.findByRole('button', { name: 'Save' })
+    const saved = savedRows.at(-1) as { canvas_data?: { layers?: { id: string; label: string }[] } }
+    const savedField1 = saved.canvas_data?.layers?.find((l) => l.id === 'f1')
+    expect(savedField1?.label).toBe('Caption 1X')
   })
 })
