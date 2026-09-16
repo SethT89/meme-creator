@@ -111,8 +111,50 @@ describe('EditorPage', () => {
     expect(screen.getByText('Caption 1')).toBeInTheDocument()
     expect(screen.getByText('Caption 2')).toBeInTheDocument()
     expect(screen.getByText('Caption 3')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '+ Text' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Export' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: '+ Text' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '+ Sticker' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open add menu' })).toBeInTheDocument()
+  })
+
+  it('shows the add-menu FAB on the blank canvas too, not just once a template is loaded', async () => {
+    renderEditor()
+    await screen.findByRole('button', { name: 'Two Buttons' }) // wait for sidebar to load
+    // Blank canvas — no template picked yet — is how a user starts from
+    // scratch (upload/add) via the FAB, so it must be visible here too.
+    expect(screen.getByRole('button', { name: 'Open add menu' })).toBeInTheDocument()
+  })
+
+  it('clicking Add Text in the FAB adds a new blank layer, selected and in edit mode with focus ready to type', async () => {
+    renderEditor()
+    await userEvent.click(await screen.findByText('Two Buttons'))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add Text' }))
+
+    // Menu closes — Add Text is a real action now, unlike the other 3.
+    expect(screen.getByRole('button', { name: 'Open add menu' })).toBeInTheDocument()
+
+    // A new contentEditable box exists (the 3 template captions are not
+    // editing), and it already has focus — cursor ready to type, no click
+    // needed.
+    const editableBoxes = document.querySelectorAll('[contenteditable="true"]')
+    expect(editableBoxes).toHaveLength(1)
+    expect(document.activeElement).toBe(editableBoxes[0])
+
+    // It's selected too — the property bar shows for it, at the default
+    // 36px ("Medium") starting size.
+    expect(screen.getByText(/size: medium/i)).toBeInTheDocument()
+  })
+
+  it('does nothing when Add Text is clicked on the blank canvas (no template loaded yet)', async () => {
+    renderEditor()
+    await screen.findByRole('button', { name: 'Two Buttons' }) // wait for sidebar to load
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add Text' }))
+
+    expect(document.querySelectorAll('[contenteditable="true"]')).toHaveLength(0)
   })
 
   it('selecting one field shows the property bar for it; selecting another moves it; clicking the image hides it', async () => {

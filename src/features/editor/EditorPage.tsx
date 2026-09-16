@@ -1,16 +1,18 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Button } from '../../components/ui/button'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { TemplateSidebar } from './TemplateSidebar'
 import type { SelectedTemplate } from './TemplateSidebar'
 import { PropertyBar } from './PropertyBar'
+import { CanvasFab } from './CanvasFab'
 import { SaveDialog } from './SaveDialog'
 import { useCreation, useCreateCreation, useCreations, useUpdateCreation } from '../../lib/queries/creations'
 import { useTemplates, useTemplateFields } from '../../lib/queries/templates'
 import { nextAvailableName } from '../../lib/creationNaming'
-import { layersFromCanvasData, applyDragDelta, applyResizeDelta } from '../../lib/layers'
+import { layersFromCanvasData, applyDragDelta, applyResizeDelta, createBlankTextLayer } from '../../lib/layers'
 import type { Layer, ResizeSign } from '../../lib/layers'
 import type { Json } from '../../types/database'
 
@@ -50,6 +52,13 @@ export function EditorPage() {
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null)
   const [editingLayerId, setEditingLayerId] = useState<string | null>(null)
   const editStartLabel = useRef('')
+  // Set (alongside editStartLabel) at every call site that starts a new edit
+  // session, consumed by the contentEditable ref callback below. Needed
+  // because that callback's own "does DOM content differ from layer.label"
+  // check can't tell a brand-new *blank* box (both start at '') apart from
+  // a re-render mid-typing (also already in sync) — without this, a blank
+  // box would never receive its initial focus.
+  const needsEditFocus = useRef(false)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dialogMode, setDialogMode] = useState<'save' | 'saveAs'>('save')
   const [dialogKey, setDialogKey] = useState(0)
@@ -60,6 +69,11 @@ export function EditorPage() {
   const [layers, setLayers] = useState<Layer[]>([])
   const [layersSeededFor, setLayersSeededFor] = useState<string | undefined>(undefined)
   const imgRef = useRef<HTMLImageElement>(null)
+  const canvasScrollRef = useRef<HTMLDivElement>(null)
+  // Fixed-position (viewport pixel) anchor for the portaled PropertyBar —
+  // see the useLayoutEffect below for why this is measured into state
+  // rather than read from imgRef.current during render.
+  const [propertyBarPos, setPropertyBarPos] = useState<{ left: number; top: number } | null>(null)
   const dragState = useRef<{
     id: string
     startX: number
@@ -88,6 +102,48 @@ export function EditorPage() {
     document.addEventListener('click', handleDocumentClick)
     return () => document.removeEventListener('click', handleDocumentClick)
   }, [])
+
+  // PropertyBar is portaled to document.body (see its render below, inside
+  // the layers map) so it can float above every other on-page element,
+  // including ones outside the canvas's own DOM subtree — nesting it inside
+  // the @container div used for font-size scaling traps it in that
+  // container's own stacking context, and no z-index on any descendant can
+  // escape it (confirmed live: even z-index 9999 on every ancestor up to
+  // the canvas scroll area lost to a plain static sibling button elsewhere
+  // on the page). Its fixed pixel position is measured here, in an effect,
+  // rather than read from imgRef.current during render — React's rules
+  // correctly flag a ref read during render as unsafe, since ref updates
+  // don't trigger a re-render and can be inconsistent under concurrent
+  // rendering. Recomputed whenever the selected layer, its position, or the
+  // template changes, and again on scroll/resize, since neither of those
+  // changes React state on its own.
+  useLayoutEffect(() => {
+    const templateRow = source?.type === 'template' ? allTemplates.find((t) => t.id === source.templateId) : undefined
+    const layer = layers.find((l) => l.id === selectedFieldId)
+    // Nothing to measure — and nothing to reset either: the render below
+    // already gates the portal on `isSelected`, so a stale propertyBarPos
+    // simply won't be used once nothing (or a different layer) is selected.
+    if (!layer || !templateRow) return
+    function measure() {
+      if (!imgRef.current || !templateRow || !layer) return
+      const imgRect = imgRef.current.getBoundingClientRect()
+      const leftPct = (layer.x / templateRow.image_width) * 100
+      const topPct = (layer.y / templateRow.image_height) * 100
+      const widthPct = (layer.width / templateRow.image_width) * 100
+      setPropertyBarPos({
+        left: imgRect.left + ((leftPct + widthPct / 2) / 100) * imgRect.width,
+        top: imgRect.top + (topPct / 100) * imgRect.height,
+      })
+    }
+    measure()
+    const scrollEl = canvasScrollRef.current
+    scrollEl?.addEventListener('scroll', measure)
+    window.addEventListener('resize', measure)
+    return () => {
+      scrollEl?.removeEventListener('scroll', measure)
+      window.removeEventListener('resize', measure)
+    }
+  }, [source, allTemplates, layers, selectedFieldId])
 
   // When editing an existing creation, sync local state from it the first time
   // it loads for this id — done during render (not in an effect) so it doesn't
@@ -200,7 +256,23 @@ export function EditorPage() {
     e.stopPropagation()
     setSelectedFieldId(layer.id)
     editStartLabel.current = layer.label
+    needsEditFocus.current = true
     setEditingLayerId(layer.id)
+  }
+
+  // CanvasFab's Add Text action. A no-op on the blank canvas (no image yet
+  // to place text on — that's future work, tied to Add Image establishing a
+  // freeform canvas). Same select-and-enter-edit-mode sequence
+  // handleDoubleClick uses, so the new box opens with focus and the cursor
+  // ready to type, exactly like double-clicking an existing one.
+  function handleAddText() {
+    if (!templateRow) return
+    const newLayer = createBlankTextLayer(templateRow.image_width, templateRow.image_height)
+    setLayers((prev) => [...prev, newLayer])
+    setSelectedFieldId(newLayer.id)
+    editStartLabel.current = ''
+    needsEditFocus.current = true
+    setEditingLayerId(newLayer.id)
   }
 
   function handleLabelInput(layerId: string, text: string) {
@@ -339,12 +411,6 @@ export function EditorPage() {
           )}
           <div className="flex flex-wrap gap-1.5">
             <Button size="sm" variant="outline" disabled>
-              + Text
-            </Button>
-            <Button size="sm" variant="outline" disabled>
-              + Sticker
-            </Button>
-            <Button size="sm" variant="outline" disabled>
               Export
             </Button>
 
@@ -371,19 +437,54 @@ export function EditorPage() {
           </div>
         </div>
 
-        <div className="flex flex-1 items-start justify-center overflow-auto">
-          <div className="relative inline-block rounded-lg bg-[repeating-conic-gradient(#00000010_0%_25%,transparent_0%_50%)] bg-[length:20px_20px]">
+        <div ref={canvasScrollRef} className="flex min-h-0 flex-1 items-start justify-center overflow-auto">
+          <div
+            // sm:mr-12 sm:mb-4 reserve exactly the room CanvasFab needs
+            // outside this box's own right/bottom edges (it matches the
+            // negative right-12/bottom-4 offsets CanvasFab positions itself
+            // with) — this scroll area shrink-wraps to its content's own
+            // size rather than filling remaining flex space, so without this
+            // the FAB's protrusion falls outside the content box entirely
+            // and gets clipped by the scroll container's overflow-auto,
+            // forcing a scroll to see all of it. Not needed on mobile, where
+            // CanvasFab overlays the image instead of sitting outside it.
+            className="relative inline-block rounded-lg bg-[repeating-conic-gradient(#00000010_0%_25%,transparent_0%_50%)] bg-[length:20px_20px] sm:mr-12 sm:mb-4"
+          >
             {source === null && <div className="h-80 w-80" />}
             {source?.type === 'template' && (
               <img
                 ref={imgRef}
                 src={source.blankImageUrl}
                 alt={source.name}
-                // No explicit width/height — the browser scales the image down
-                // to fit within these bounds using its own intrinsic aspect
-                // ratio, so portrait/landscape/square templates all render
-                // undistorted regardless of viewport width.
-                className="block max-h-[65vh] w-auto max-w-full"
+                // No explicit width/height attributes — sized entirely via
+                // CSS below. An explicit aspect-ratio (once templateRow is
+                // known) keeps sm:min-h-[240px] below from distorting the
+                // image on its own — without a locked ratio, a height floor
+                // and max-w-full can each win independently, stretching
+                // width and height out of proportion instead of scaling
+                // together.
+                style={templateRow ? { aspectRatio: `${templateRow.image_width} / ${templateRow.image_height}` } : undefined}
+                // max-h-[65vh] is the fallback before templateRow (and its
+                // real aspect ratio) has loaded. Once it has, sm:max-h-
+                // [calc(100vh-19rem)] replaces the 65vh guess with the
+                // actual available height in this layout (measured live:
+                // header + toolbar + padding + margins + CanvasFab's own
+                // reserved margin below always total 19rem here) — 65vh is
+                // the wrong shape of formula for "fill available space" (it
+                // scales at 0.65x viewport height while the real budget
+                // scales at 1x minus a constant, so it only matches by
+                // coincidence at one specific window height).
+                // sm:min-h-[240px] is the floor past which the image stops
+                // scaling down and this area's overflow-auto (or, on a short
+                // enough viewport, the page itself) scrolls instead — sm+
+                // only: below that width the image is already width-bound
+                // (portrait templates on a narrow phone), and forcing a
+                // height floor there fights max-w-full for control of the
+                // box and distorts it (confirmed live — the two together
+                // rendered a visibly squashed template under 640px). A short
+                // *landscape* phone still gets the floor, since landscape
+                // width is almost always above the sm breakpoint.
+                className="block max-h-[65vh] w-auto max-w-full sm:max-h-[calc(100vh-19rem)] sm:min-h-[240px]"
               />
             )}
             {source?.type === 'freeform' && (
@@ -461,9 +562,14 @@ export function EditorPage() {
                         ref={
                           isEditing
                             ? (el) => {
-                                if (el && el.textContent !== layer.label) {
+                                // needsEditFocus (set at the two places that start
+                                // an edit session) catches the case textContent
+                                // !== label can't: a brand-new *blank* box, where
+                                // both start at '' and look already "in sync".
+                                if (el && (el.textContent !== layer.label || needsEditFocus.current)) {
                                   el.textContent = layer.label
                                   el.focus()
+                                  needsEditFocus.current = false
                                   // Select the existing text so the first
                                   // keystroke replaces it, like renaming a
                                   // layer in most design tools. Best-effort:
@@ -516,30 +622,38 @@ export function EditorPage() {
                           ))}
                       </div>
 
-                      {isSelected && (
-                        <div
-                          className="absolute"
-                          style={{
-                            left: `${leftPct + widthPct / 2}%`,
-                            top: `${topPct}%`,
-                            // Anchored to the field's own position, not the canvas
-                            // center — sits just above the field, horizontally centered on it.
-                            transform: 'translate(-50%, calc(-100% - 8px))',
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <PropertyBar
-                            fontSize={layer.fontSize}
-                            onChangeFontSize={(px) => handleChangeFontSize(layer.id, px)}
-                            onDelete={() => handleDeleteLayer(layer.id)}
-                          />
-                        </div>
-                      )}
+                      {isSelected &&
+                        propertyBarPos &&
+                        createPortal(
+                          <div
+                            className="fixed z-50"
+                            style={{
+                              left: propertyBarPos.left,
+                              top: propertyBarPos.top,
+                              // Anchored to the field's own position — sits
+                              // just above the field, horizontally centered on it.
+                              transform: 'translate(-50%, calc(-100% - 8px))',
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <PropertyBar
+                              fontSize={layer.fontSize}
+                              onChangeFontSize={(px) => handleChangeFontSize(layer.id, px)}
+                              onDelete={() => handleDeleteLayer(layer.id)}
+                            />
+                          </div>,
+                          document.body,
+                        )}
                     </Fragment>
                   )
                 })}
               </div>
             )}
+            {/* Shown on the blank canvas too (source === null), not just once
+                a template is loaded — it's the entry point for starting from
+                scratch (upload an image, add a sticker/text) as well as for
+                adding to a loaded template. */}
+            <CanvasFab onAddText={handleAddText} />
           </div>
         </div>
       </div>

@@ -57,6 +57,28 @@ export function initialLayersFromFields(fields: TemplateFieldRow[]): Layer[] {
   }))
 }
 
+// A freeform layer from CanvasFab's "Add Text" action — not derived from any
+// template_fields row, just an ordinary blank Layer dropped in the middle of
+// the image. Sized relative to the image so it looks reasonable regardless
+// of the template's own dimensions; heightAuto (like every other layer)
+// means the fixed starting height below only matters for the initial
+// drag-centering math, not for clipping.
+export function createBlankTextLayer(imageWidth: number, imageHeight: number): Layer {
+  const fontSize = 36
+  const width = imageWidth * 0.4
+  const height = fontSize * 1.5
+  return {
+    id: crypto.randomUUID(),
+    label: '',
+    x: (imageWidth - width) / 2,
+    y: (imageHeight - height) / 2,
+    width,
+    height,
+    fontSize,
+    heightAuto: true,
+  }
+}
+
 export function layersFromCanvasData(canvasData: unknown, fallbackFields: TemplateFieldRow[]): Layer[] {
   const layers = (canvasData as { layers?: Layer[] } | null | undefined)?.layers
   if (layers && layers.length > 0) {
