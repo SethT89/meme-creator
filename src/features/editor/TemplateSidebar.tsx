@@ -59,7 +59,15 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
   )
 
   return (
-    <>
+    // A single wrapping element so this whole sidebar (toggle + drawer +
+    // desktop column) is exactly one flex item in EditorPage's row. Without
+    // this, the mobile toggle button's own `w-full` was computing against
+    // the *entire row* (its flex-basis, as a direct sibling of the canvas
+    // column) instead of a sidebar-sized area — it claimed all the row's
+    // width for itself and left the canvas at 0px. Shrink-to-fit content
+    // sizing on this wrapper (no explicit width) is exactly right: narrow
+    // (just the toggle button) on mobile, sm:w-56 on desktop.
+    <div className="shrink-0 sm:h-full sm:w-56">
       {/* Mobile: a toggle that expands the list as a slide-out overlay
           instead of permanently occupying layout width. Desktop keeps the
           permanent column; both render the same listContent underneath. */}
@@ -78,7 +86,7 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
         </div>
       )}
 
-      <div className="hidden h-full w-56 shrink-0 flex-col sm:flex">{listContent}</div>
+      <div className="hidden h-full flex-col sm:flex">{listContent}</div>
 
       <SearchTemplatesModal
         open={searchOpen}
@@ -88,6 +96,6 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
           setSearchOpen(false)
         }}
       />
-    </>
+    </div>
   )
 }
