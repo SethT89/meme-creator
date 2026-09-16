@@ -367,7 +367,18 @@ export function EditorPage() {
         </div>
 
         <div className="flex flex-1 items-start justify-center overflow-auto">
-          <div className="relative inline-block rounded-lg bg-[repeating-conic-gradient(#00000010_0%_25%,transparent_0%_50%)] bg-[length:20px_20px]">
+          <div
+            // sm:mr-12 sm:mb-4 reserve exactly the room CanvasFab needs
+            // outside this box's own right/bottom edges (it matches the
+            // negative right-12/bottom-4 offsets CanvasFab positions itself
+            // with) — this scroll area shrink-wraps to its content's own
+            // size rather than filling remaining flex space, so without this
+            // the FAB's protrusion falls outside the content box entirely
+            // and gets clipped by the scroll container's overflow-auto,
+            // forcing a scroll to see all of it. Not needed on mobile, where
+            // CanvasFab overlays the image instead of sitting outside it.
+            className="relative inline-block rounded-lg bg-[repeating-conic-gradient(#00000010_0%_25%,transparent_0%_50%)] bg-[length:20px_20px] sm:mr-12 sm:mb-4"
+          >
             {source === null && <div className="h-80 w-80" />}
             {source?.type === 'template' && (
               <img
