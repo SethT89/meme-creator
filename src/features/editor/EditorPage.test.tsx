@@ -43,6 +43,12 @@ vi.mock('../../lib/supabase', () => ({
           }),
         }
       }
+      if (table === 'template_usage_events') {
+        return {
+          select: () => Promise.resolve({ data: [], error: null }),
+          insert: () => Promise.resolve({ error: null }),
+        }
+      }
       // creations
       return {
         select: () => ({
@@ -94,11 +100,12 @@ function renderEditor(initialPath = '/') {
 }
 
 describe('EditorPage', () => {
-  it('shows the empty state first, then the real template image and its fields after picking it', async () => {
+  it('shows a blank canvas and the template sidebar first, then the real template image and its fields after picking it', async () => {
     renderEditor()
-    expect(screen.getByRole('heading', { name: 'Start a New Meme' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Two Buttons' })).toBeInTheDocument()
+    expect(screen.queryByRole('img', { name: 'Two Buttons' })).not.toBeInTheDocument()
 
-    await userEvent.click(await screen.findByText('Two Buttons'))
+    await userEvent.click(screen.getByRole('button', { name: 'Two Buttons' }))
 
     expect(screen.getByRole('img', { name: 'Two Buttons' })).toHaveAttribute('src', 'https://example.com/blank.jpg')
     expect(screen.getByText('Caption 1')).toBeInTheDocument()
@@ -343,5 +350,42 @@ describe('EditorPage', () => {
     const saved = savedRows.at(-1) as { canvas_data?: { layers?: { id: string; label: string }[] } }
     const savedField1 = saved.canvas_data?.layers?.find((l) => l.id === 'f1')
     expect(savedField1?.label).toBe('Caption 1X')
+  })
+
+  it('does not show a Clear Canvas button when the canvas is blank', async () => {
+    renderEditor()
+    await screen.findByRole('button', { name: 'Two Buttons' }) // wait for sidebar to load
+    expect(screen.queryByRole('button', { name: 'Clear Canvas' })).not.toBeInTheDocument()
+  })
+
+  it('Clear Canvas asks for confirmation, and only clears once confirmed', async () => {
+    renderEditor()
+    await userEvent.click(await screen.findByText('Two Buttons'))
+    expect(screen.getByRole('img', { name: 'Two Buttons' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Clear Canvas' }))
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Two Buttons' })).toBeInTheDocument() // not cleared yet
+
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Clear Canvas' }))
+    expect(screen.queryByRole('img', { name: 'Two Buttons' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Clear Canvas' })).not.toBeInTheDocument()
+  })
+
+  it('Clear Canvas cancel leaves the canvas untouched', async () => {
+    renderEditor()
+    await userEvent.click(await screen.findByText('Two Buttons'))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Clear Canvas' }))
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }))
+
+    expect(screen.getByRole('img', { name: 'Two Buttons' })).toBeInTheDocument()
+  })
+
+  it('picking a template while the canvas is blank loads it with no confirmation', async () => {
+    renderEditor()
+    await userEvent.click(await screen.findByText('Two Buttons'))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Two Buttons' })).toBeInTheDocument()
   })
 })

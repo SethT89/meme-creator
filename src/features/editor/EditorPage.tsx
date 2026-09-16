@@ -2,8 +2,9 @@ import { Fragment, useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Button } from '../../components/ui/button'
-import { EditorEmptyState } from './EditorEmptyState'
-import type { SelectedTemplate } from './EditorEmptyState'
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
+import { TemplateSidebar } from './TemplateSidebar'
+import type { SelectedTemplate } from './TemplateSidebar'
 import { PropertyBar } from './PropertyBar'
 import { SaveDialog } from './SaveDialog'
 import { useCreation, useCreateCreation, useCreations, useUpdateCreation } from '../../lib/queries/creations'
@@ -52,6 +53,8 @@ export function EditorPage() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [dialogMode, setDialogMode] = useState<'save' | 'saveAs'>('save')
   const [dialogKey, setDialogKey] = useState(0)
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
+  const [pendingTemplate, setPendingTemplate] = useState<SelectedTemplate | null>(null)
 
   const { data: fields = [] } = useTemplateFields(source?.type === 'template' ? source.templateId : undefined)
   const [layers, setLayers] = useState<Layer[]>([])
@@ -129,25 +132,9 @@ export function EditorPage() {
     return <p className="text-sm text-muted-foreground">Loading…</p>
   }
 
-  if (!source) {
-    return (
-      <EditorEmptyState
-        onUpload={() => setSource({ type: 'freeform', name: 'My Meme' })}
-        onSelectTemplate={(template: SelectedTemplate) =>
-          setSource({
-            type: 'template',
-            name: template.name,
-            templateId: template.id,
-            blankImageUrl: template.blankImageUrl,
-          })
-        }
-      />
-    )
-  }
+  const templateRow = source?.type === 'template' ? allTemplates.find((t) => t.id === source.templateId) : undefined
 
-  const templateRow = source.type === 'template' ? allTemplates.find((t) => t.id === source.templateId) : undefined
-
-  function startOver() {
+  function clearCanvas() {
     setSource(null)
     setSavedMeta(null)
     setSelectedFieldId(null)
@@ -155,6 +142,38 @@ export function EditorPage() {
     setLayers([])
     setLayersSeededFor(undefined)
     if (creationId) navigate('/')
+  }
+
+  function loadTemplate(template: SelectedTemplate) {
+    setSource({ type: 'template', name: template.name, templateId: template.id, blankImageUrl: template.blankImageUrl })
+    setSavedMeta(null)
+    setSelectedFieldId(null)
+    setEditingLayerId(null)
+    setLayers([])
+    setLayersSeededFor(undefined)
+    if (creationId) navigate('/')
+  }
+
+  function handleSelectTemplate(template: SelectedTemplate) {
+    if (source !== null) {
+      setPendingTemplate(template)
+    } else {
+      loadTemplate(template)
+    }
+  }
+
+  function handleClearCanvasClick() {
+    setClearConfirmOpen(true)
+  }
+
+  function confirmClearCanvas() {
+    clearCanvas()
+    setClearConfirmOpen(false)
+  }
+
+  function confirmSwitchTemplate() {
+    if (pendingTemplate) loadTemplate(pendingTemplate)
+    setPendingTemplate(null)
   }
 
   function openDialog(mode: 'save' | 'saveAs') {
@@ -270,11 +289,11 @@ export function EditorPage() {
   const defaultName =
     dialogMode === 'saveAs' && savedMeta
       ? `${savedMeta.name} copy`
-      : nextAvailableName(source.name, allCreations.map((c) => c.name))
+      : nextAvailableName(source?.name ?? '', allCreations.map((c) => c.name))
   const defaultTags = dialogMode === 'saveAs' && savedMeta ? savedMeta.tags : []
 
   function handleDialogSave(name: string, tags: string[]) {
-    const activeSource = source! // guaranteed non-null: this handler only runs once `source` is set (see the `!source` early return above)
+    const activeSource = source! // guaranteed non-null: Save to Gallery only renders once source is set
     createCreation.mutate(
       {
         name,
@@ -302,216 +321,226 @@ export function EditorPage() {
   }
 
   return (
-    <div>
-      <h2 className="mb-3 text-lg font-semibold">{savedMeta ? savedMeta.name : 'Editor'}</h2>
+    <div className="flex h-full gap-6">
+      <TemplateSidebar selectedTemplateId={source?.type === 'template' ? source.templateId : undefined} onSelectTemplate={handleSelectTemplate} />
 
-      {/* Page-level actions live above the canvas, not overlapping the image —
-          only per-field editing controls (PropertyBar) appear on the canvas itself. */}
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-1.5">
-        <Button size="sm" variant="outline" onClick={startOver}>
-          ← Start Over
-        </Button>
-        <div className="flex flex-wrap gap-1.5">
-          <Button size="sm" variant="outline" disabled>
-            + Text
-          </Button>
-          <Button size="sm" variant="outline" disabled>
-            + Sticker
-          </Button>
-          <Button size="sm" variant="outline" disabled>
-            Export
-          </Button>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <h2 className="mb-3 text-lg font-semibold">{savedMeta ? savedMeta.name : 'Editor'}</h2>
 
-          {!savedMeta && (
-            <Button size="sm" onClick={() => openDialog('save')}>
-              Save to Gallery
+        {/* Page-level actions live above the canvas, not overlapping the image —
+            only per-field editing controls (PropertyBar) appear on the canvas itself. */}
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-1.5">
+          {source !== null ? (
+            <Button size="sm" variant="outline" onClick={handleClearCanvasClick}>
+              Clear Canvas
             </Button>
-          )}
-          {savedMeta && (
-            <div className="flex">
-              <Button size="sm" className="rounded-r-none" onClick={handleQuickSave}>
-                Save
-              </Button>
-              <Button
-                size="sm"
-                aria-label="▾"
-                className="rounded-l-none border-l border-primary-foreground/30 px-2"
-                onClick={() => openDialog('saveAs')}
-              >
-                ▾
-              </Button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="flex justify-center">
-        <div className="relative inline-block rounded-lg bg-[repeating-conic-gradient(#00000010_0%_25%,transparent_0%_50%)] bg-[length:20px_20px]">
-          {source.type === 'template' ? (
-            <img
-              ref={imgRef}
-              src={source.blankImageUrl}
-              alt={source.name}
-              // No explicit width/height — the browser scales the image down
-              // to fit within these bounds using its own intrinsic aspect
-              // ratio, so portrait/landscape/square templates all render
-              // undistorted regardless of viewport width.
-              className="block max-h-[65vh] w-auto max-w-full"
-            />
           ) : (
-            <div className="flex h-80 w-80 items-center justify-center border border-border bg-muted text-sm text-muted-foreground">
-              {source.name}
-            </div>
+            <div />
           )}
+          <div className="flex flex-wrap gap-1.5">
+            <Button size="sm" variant="outline" disabled>
+              + Text
+            </Button>
+            <Button size="sm" variant="outline" disabled>
+              + Sticker
+            </Button>
+            <Button size="sm" variant="outline" disabled>
+              Export
+            </Button>
 
-          {source.type === 'template' && templateRow && (
-            // A separate, absolutely-positioned @container layer rather than
-            // putting @container directly on the inline-block wrapper above:
-            // an element that shrink-wraps to its content (inline-block) and
-            // is also a size container at once is a circular CSS dependency
-            // browsers resolve by collapsing it to 0×0. This inner div is
-            // inset:0 — its size comes from the already-resolved outer box
-            // (which shrink-wraps to the <img>), not from its own content, so
-            // containment here has nothing circular to resolve.
-            <div className="absolute inset-0 @container">
-              {layers.map((layer) => {
-                const leftPct = (layer.x / templateRow.image_width) * 100
-                const topPct = (layer.y / templateRow.image_height) * 100
-                const widthPct = (layer.width / templateRow.image_width) * 100
-                const heightPct = (layer.height / templateRow.image_height) * 100
-                // font-size scaled to the image's own rendered width via a CSS
-                // container query unit, the same percentage-of-image math the
-                // position/width above already use — otherwise font size would
-                // render as a literal screen-px value regardless of how large
-                // the template is actually displayed.
-                const fontSizeCqw = (layer.fontSize / templateRow.image_width) * 100
+            {source !== null && !savedMeta && (
+              <Button size="sm" onClick={() => openDialog('save')}>
+                Save to Gallery
+              </Button>
+            )}
+            {savedMeta && (
+              <div className="flex">
+                <Button size="sm" className="rounded-r-none" onClick={handleQuickSave}>
+                  Save
+                </Button>
+                <Button
+                  size="sm"
+                  aria-label="▾"
+                  className="rounded-l-none border-l border-primary-foreground/30 px-2"
+                  onClick={() => openDialog('saveAs')}
+                >
+                  ▾
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
 
-                const isSelected = selectedFieldId === layer.id
-                const isEditing = editingLayerId === layer.id
+        <div className="flex flex-1 items-start justify-center overflow-auto">
+          <div className="relative inline-block rounded-lg bg-[repeating-conic-gradient(#00000010_0%_25%,transparent_0%_50%)] bg-[length:20px_20px]">
+            {source === null && <div className="h-80 w-80" />}
+            {source?.type === 'template' && (
+              <img
+                ref={imgRef}
+                src={source.blankImageUrl}
+                alt={source.name}
+                // No explicit width/height — the browser scales the image down
+                // to fit within these bounds using its own intrinsic aspect
+                // ratio, so portrait/landscape/square templates all render
+                // undistorted regardless of viewport width.
+                className="block max-h-[65vh] w-auto max-w-full"
+              />
+            )}
+            {source?.type === 'freeform' && (
+              <div className="flex h-80 w-80 items-center justify-center border border-border bg-muted text-sm text-muted-foreground">
+                {source.name}
+              </div>
+            )}
 
-                return (
-                  <Fragment key={layer.id}>
-                    <div
-                      // Forces a full remount (not a diff) when entering/exiting
-                      // edit mode. While editing, the browser mutates this
-                      // element's real DOM text via native contentEditable
-                      // typing — React never tracks those changes (children
-                      // renders as `false` below). Reconciling back into
-                      // React-owned `{layer.label}` children afterward would
-                      // make React try to diff against DOM it doesn't
-                      // recognize, which can throw. A key change sidesteps
-                      // that entirely: React just discards the old subtree
-                      // and mounts a fresh one.
-                      key={isEditing ? `${layer.id}-edit` : `${layer.id}-view`}
-                      className={`absolute p-1 text-center font-bold text-black outline-none ${
-                        isSelected ? 'border border-blue-500' : 'border border-transparent'
-                      } ${isEditing ? 'cursor-text' : 'cursor-grab touch-none active:cursor-grabbing'} ${
-                        isSelected && !isEditing ? 'hover:underline hover:decoration-blue-500' : ''
-                      }`}
-                      style={{
-                        left: `${leftPct}%`,
-                        top: `${topPct}%`,
-                        width: `${widthPct}%`,
-                        // heightAuto (the default): no explicit height, so the
-                        // box grows to fit wrapped text instead of clipping it
-                        // — a bigger font or more text is never silently cut
-                        // off. Dragging a resize handle below sets an explicit
-                        // height and turns this off permanently for that box,
-                        // same as any ordinary text box.
-                        ...(layer.heightAuto ? {} : { height: `${heightPct}%` }),
-                        fontSize: `calc(${fontSizeCqw} * 1cqw)`,
-                      }}
-                      // contentEditable while editing, not React `children` —
-                      // React thinks this element's children is just `false`
-                      // (see below) so it never touches the live DOM text via
-                      // reconciliation, which is what would reset the cursor
-                      // to the start on every keystroke. The ref sets the
-                      // starting text once; typing after that is the browser's
-                      // own contentEditable behavior, read back via onInput.
-                      contentEditable={isEditing}
-                      suppressContentEditableWarning
-                      ref={
-                        isEditing
-                          ? (el) => {
-                              if (el && el.textContent !== layer.label) {
-                                el.textContent = layer.label
-                                el.focus()
-                                // Select the existing text so the first
-                                // keystroke replaces it, like renaming a
-                                // layer in most design tools. Best-effort:
-                                // a stale Range/Selection from a previous
-                                // edit session can throw here in some
-                                // environments — editing still works fine
-                                // without the selection, so don't let it
-                                // block entering edit mode.
-                                try {
-                                  const range = document.createRange()
-                                  range.selectNodeContents(el)
-                                  const selection = window.getSelection()
-                                  selection?.removeAllRanges()
-                                  selection?.addRange(range)
-                                } catch {
-                                  // ignore — select-all-on-edit is a convenience, not a requirement
+            {source?.type === 'template' && templateRow && (
+              // A separate, absolutely-positioned @container layer rather than
+              // putting @container directly on the inline-block wrapper above:
+              // an element that shrink-wraps to its content (inline-block) and
+              // is also a size container at once is a circular CSS dependency
+              // browsers resolve by collapsing it to 0×0. This inner div is
+              // inset:0 — its size comes from the already-resolved outer box
+              // (which shrink-wraps to the <img>), not from its own content, so
+              // containment here has nothing circular to resolve.
+              <div className="absolute inset-0 @container">
+                {layers.map((layer) => {
+                  const leftPct = (layer.x / templateRow.image_width) * 100
+                  const topPct = (layer.y / templateRow.image_height) * 100
+                  const widthPct = (layer.width / templateRow.image_width) * 100
+                  const heightPct = (layer.height / templateRow.image_height) * 100
+                  // font-size scaled to the image's own rendered width via a CSS
+                  // container query unit, the same percentage-of-image math the
+                  // position/width above already use — otherwise font size would
+                  // render as a literal screen-px value regardless of how large
+                  // the template is actually displayed.
+                  const fontSizeCqw = (layer.fontSize / templateRow.image_width) * 100
+
+                  const isSelected = selectedFieldId === layer.id
+                  const isEditing = editingLayerId === layer.id
+
+                  return (
+                    <Fragment key={layer.id}>
+                      <div
+                        // Forces a full remount (not a diff) when entering/exiting
+                        // edit mode. While editing, the browser mutates this
+                        // element's real DOM text via native contentEditable
+                        // typing — React never tracks those changes (children
+                        // renders as `false` below). Reconciling back into
+                        // React-owned `{layer.label}` children afterward would
+                        // make React try to diff against DOM it doesn't
+                        // recognize, which can throw. A key change sidesteps
+                        // that entirely: React just discards the old subtree
+                        // and mounts a fresh one.
+                        key={isEditing ? `${layer.id}-edit` : `${layer.id}-view`}
+                        className={`absolute p-1 text-center font-bold text-black outline-none ${
+                          isSelected ? 'border border-blue-500' : 'border border-transparent'
+                        } ${isEditing ? 'cursor-text' : 'cursor-grab touch-none active:cursor-grabbing'} ${
+                          isSelected && !isEditing ? 'hover:underline hover:decoration-blue-500' : ''
+                        }`}
+                        style={{
+                          left: `${leftPct}%`,
+                          top: `${topPct}%`,
+                          width: `${widthPct}%`,
+                          // heightAuto (the default): no explicit height, so the
+                          // box grows to fit wrapped text instead of clipping it
+                          // — a bigger font or more text is never silently cut
+                          // off. Dragging a resize handle below sets an explicit
+                          // height and turns this off permanently for that box,
+                          // same as any ordinary text box.
+                          ...(layer.heightAuto ? {} : { height: `${heightPct}%` }),
+                          fontSize: `calc(${fontSizeCqw} * 1cqw)`,
+                        }}
+                        // contentEditable while editing, not React `children` —
+                        // React thinks this element's children is just `false`
+                        // (see below) so it never touches the live DOM text via
+                        // reconciliation, which is what would reset the cursor
+                        // to the start on every keystroke. The ref sets the
+                        // starting text once; typing after that is the browser's
+                        // own contentEditable behavior, read back via onInput.
+                        contentEditable={isEditing}
+                        suppressContentEditableWarning
+                        ref={
+                          isEditing
+                            ? (el) => {
+                                if (el && el.textContent !== layer.label) {
+                                  el.textContent = layer.label
+                                  el.focus()
+                                  // Select the existing text so the first
+                                  // keystroke replaces it, like renaming a
+                                  // layer in most design tools. Best-effort:
+                                  // a stale Range/Selection from a previous
+                                  // edit session can throw here in some
+                                  // environments — editing still works fine
+                                  // without the selection, so don't let it
+                                  // block entering edit mode.
+                                  try {
+                                    const range = document.createRange()
+                                    range.selectNodeContents(el)
+                                    const selection = window.getSelection()
+                                    selection?.removeAllRanges()
+                                    selection?.addRange(range)
+                                  } catch {
+                                    // ignore — select-all-on-edit is a convenience, not a requirement
+                                  }
                                 }
                               }
-                            }
-                          : undefined
-                      }
-                      onPointerDown={(e) => handlePointerDown(e, layer)}
-                      onPointerMove={handlePointerMove}
-                      onPointerUp={handlePointerUp}
-                      onClick={(e) => e.stopPropagation()}
-                      onDoubleClick={(e) => handleDoubleClick(e, layer)}
-                      onInput={(e) => handleLabelInput(layer.id, e.currentTarget.textContent ?? '')}
-                      onBlur={handleLabelBlur}
-                      onKeyDown={(e) => handleLabelKeyDown(e, layer.id)}
-                    >
-                      {!isEditing && layer.label}
-                      {/* Hidden while editing: these render as children of
-                          the contentEditable box, and the browser's native
-                          editing engine can restructure/move child nodes
-                          during text selection — which then breaks React's
-                          own bookkeeping of them. Resizing mid-type isn't a
-                          real use case anyway; finish editing first. */}
-                      {isSelected &&
-                        !isEditing &&
-                        RESIZE_HANDLES.map((handle) => (
-                          <div
-                            key={handle.key}
-                            className="absolute h-2.5 w-2.5 touch-none border border-blue-500 bg-white"
-                            style={{ top: handle.top, left: handle.left, transform: 'translate(-50%, -50%)', cursor: handle.cursor }}
-                            onPointerDown={(e) => handleResizePointerDown(e, layer, handle.xSign, handle.ySign)}
-                            onPointerMove={handleResizePointerMove}
-                            onPointerUp={handleResizePointerUp}
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        ))}
-                    </div>
-
-                    {isSelected && (
-                      <div
-                        className="absolute"
-                        style={{
-                          left: `${leftPct + widthPct / 2}%`,
-                          top: `${topPct}%`,
-                          // Anchored to the field's own position, not the canvas
-                          // center — sits just above the field, horizontally centered on it.
-                          transform: 'translate(-50%, calc(-100% - 8px))',
-                        }}
+                            : undefined
+                        }
+                        onPointerDown={(e) => handlePointerDown(e, layer)}
+                        onPointerMove={handlePointerMove}
+                        onPointerUp={handlePointerUp}
                         onClick={(e) => e.stopPropagation()}
+                        onDoubleClick={(e) => handleDoubleClick(e, layer)}
+                        onInput={(e) => handleLabelInput(layer.id, e.currentTarget.textContent ?? '')}
+                        onBlur={handleLabelBlur}
+                        onKeyDown={(e) => handleLabelKeyDown(e, layer.id)}
                       >
-                        <PropertyBar
-                          fontSize={layer.fontSize}
-                          onChangeFontSize={(px) => handleChangeFontSize(layer.id, px)}
-                          onDelete={() => handleDeleteLayer(layer.id)}
-                        />
+                        {!isEditing && layer.label}
+                        {/* Hidden while editing: these render as children of
+                            the contentEditable box, and the browser's native
+                            editing engine can restructure/move child nodes
+                            during text selection — which then breaks React's
+                            own bookkeeping of them. Resizing mid-type isn't a
+                            real use case anyway; finish editing first. */}
+                        {isSelected &&
+                          !isEditing &&
+                          RESIZE_HANDLES.map((handle) => (
+                            <div
+                              key={handle.key}
+                              className="absolute h-2.5 w-2.5 touch-none border border-blue-500 bg-white"
+                              style={{ top: handle.top, left: handle.left, transform: 'translate(-50%, -50%)', cursor: handle.cursor }}
+                              onPointerDown={(e) => handleResizePointerDown(e, layer, handle.xSign, handle.ySign)}
+                              onPointerMove={handleResizePointerMove}
+                              onPointerUp={handleResizePointerUp}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          ))}
                       </div>
-                    )}
-                  </Fragment>
-                )
-              })}
-            </div>
-          )}
+
+                      {isSelected && (
+                        <div
+                          className="absolute"
+                          style={{
+                            left: `${leftPct + widthPct / 2}%`,
+                            top: `${topPct}%`,
+                            // Anchored to the field's own position, not the canvas
+                            // center — sits just above the field, horizontally centered on it.
+                            transform: 'translate(-50%, calc(-100% - 8px))',
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <PropertyBar
+                            fontSize={layer.fontSize}
+                            onChangeFontSize={(px) => handleChangeFontSize(layer.id, px)}
+                            onDelete={() => handleDeleteLayer(layer.id)}
+                          />
+                        </div>
+                      )}
+                    </Fragment>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -524,6 +553,24 @@ export function EditorPage() {
         existingCreations={allCreations}
         onCancel={() => setDialogOpen(false)}
         onSave={handleDialogSave}
+      />
+
+      <ConfirmDialog
+        open={clearConfirmOpen}
+        title="Clear canvas?"
+        message="This will discard your current work. This can't be undone."
+        confirmLabel="Clear Canvas"
+        onConfirm={confirmClearCanvas}
+        onCancel={() => setClearConfirmOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={pendingTemplate !== null}
+        title="Switch templates?"
+        message="This will discard your current work. This can't be undone."
+        confirmLabel="Switch Template"
+        onConfirm={confirmSwitchTemplate}
+        onCancel={() => setPendingTemplate(null)}
       />
     </div>
   )

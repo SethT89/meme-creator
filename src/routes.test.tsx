@@ -7,14 +7,32 @@ import { routes } from './routes'
 
 vi.mock('./lib/supabase', () => ({
   supabase: {
-    from: () => ({
-      select: () => ({
-        order: () => Promise.resolve({ data: [], error: null }),
-        eq: () => ({
-          single: () => Promise.resolve({ data: null, error: null }),
+    from: (table: string) => {
+      if (table === 'templates' || table === 'template_usage_events') {
+        return {
+          select: () => Promise.resolve({ data: [], error: null }),
+          insert: () => Promise.resolve({ error: null }),
+        }
+      }
+      if (table === 'template_fields') {
+        return {
+          select: () => ({
+            eq: () => ({
+              order: () => Promise.resolve({ data: [], error: null }),
+            }),
+          }),
+        }
+      }
+      // creations
+      return {
+        select: () => ({
+          order: () => Promise.resolve({ data: [], error: null }),
+          eq: () => ({
+            single: () => Promise.resolve({ data: null, error: null }),
+          }),
         }),
-      }),
-    }),
+      }
+    },
   },
 }))
 
@@ -29,9 +47,9 @@ function renderAt(path: string) {
 }
 
 describe('routes', () => {
-  it('renders the editor empty state at /', () => {
+  it('renders the editor (blank canvas) at /', () => {
     renderAt('/')
-    expect(screen.getByRole('heading', { name: 'Start a New Meme' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Editor' })).toBeInTheDocument()
   })
 
   it('renders the gallery page at /gallery', () => {
@@ -41,12 +59,12 @@ describe('routes', () => {
 
   it('the header toggle actually navigates between New Meme and My Saved Memes', async () => {
     renderAt('/')
-    expect(screen.getByRole('heading', { name: 'Start a New Meme' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Editor' })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'My Saved Memes' }))
     expect(await screen.findByRole('heading', { name: 'My Creations' })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'New Meme' }))
-    expect(await screen.findByRole('heading', { name: 'Start a New Meme' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Editor' })).toBeInTheDocument()
   })
 })
