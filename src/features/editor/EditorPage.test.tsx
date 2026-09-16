@@ -135,6 +135,21 @@ describe('EditorPage', () => {
     expect(screen.queryByText(/size: 22px/i)).not.toBeInTheDocument()
   })
 
+  it('deselects on a click completely outside this page\'s own rendered content (e.g. the app header, or empty space in the floating panel)', async () => {
+    renderEditor()
+    await userEvent.click(await screen.findByText('Two Buttons'))
+    await userEvent.click(screen.getByText('Caption 1'))
+    expect(screen.getByText(/size: 22px/i)).toBeInTheDocument()
+
+    // document.body is outside this component's own DOM subtree entirely —
+    // regression test for the bug where the deselect handler only lived on
+    // this page's own wrapper div, which doesn't span the full floating
+    // panel (let alone the app header), so clicks outside its own content
+    // bounds silently did nothing.
+    await userEvent.click(document.body)
+    expect(screen.queryByText(/size: 22px/i)).not.toBeInTheDocument()
+  })
+
   it('does not deselect when clicking a control inside the property bar itself', async () => {
     renderEditor()
     await userEvent.click(await screen.findByText('Two Buttons'))

@@ -1,4 +1,4 @@
-import { Fragment, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Button } from '../../components/ui/button'
@@ -68,6 +68,23 @@ export function EditorPage() {
   const resizeState = useRef<{ id: string; startX: number; startY: number; layerStart: Layer; xSign: ResizeSign; ySign: ResizeSign } | null>(
     null,
   )
+
+  // Deselect on a click ANYWHERE in the app, not just within this page's own
+  // rendered content — the page's content div only spans its own content
+  // height, not the full floating panel (which can be much taller), so a
+  // click-handler on this component's own wrapper missed clicks in the
+  // panel's empty space (or the header/backdrop above it). A document-level
+  // listener catches every click regardless of what DOM subtree it lands in.
+  // Elements that shouldn't trigger a deselect (the field itself, the
+  // property bar, resize handles) already call stopPropagation, which stops
+  // the event from ever reaching this listener.
+  useEffect(() => {
+    function handleDocumentClick() {
+      setSelectedFieldId(null)
+    }
+    document.addEventListener('click', handleDocumentClick)
+    return () => document.removeEventListener('click', handleDocumentClick)
+  }, [])
 
   // When editing an existing creation, sync local state from it the first time
   // it loads for this id — done during render (not in an effect) so it doesn't
@@ -285,9 +302,7 @@ export function EditorPage() {
   }
 
   return (
-    // Deselects on any click that isn't explicitly stopped from bubbling —
-    // by the selected field itself, or the property bar's own controls.
-    <div onClick={() => setSelectedFieldId(null)}>
+    <div>
       <h2 className="mb-3 text-lg font-semibold">{savedMeta ? savedMeta.name : 'Editor'}</h2>
 
       {/* Page-level actions live above the canvas, not overlapping the image —
