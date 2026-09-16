@@ -388,9 +388,11 @@ export function EditorPage() {
                       // that entirely: React just discards the old subtree
                       // and mounts a fresh one.
                       key={isEditing ? `${layer.id}-edit` : `${layer.id}-view`}
-                      className={`absolute p-1 text-center font-bold text-black ${
+                      className={`absolute p-1 text-center font-bold text-black outline-none ${
                         isSelected ? 'border border-blue-500' : 'border border-transparent'
-                      } ${isEditing ? 'cursor-text' : 'cursor-grab touch-none active:cursor-grabbing'}`}
+                      } ${isEditing ? 'cursor-text' : 'cursor-grab touch-none active:cursor-grabbing'} ${
+                        isSelected && !isEditing ? 'hover:underline' : ''
+                      }`}
                       style={{
                         left: `${leftPct}%`,
                         top: `${topPct}%`,
