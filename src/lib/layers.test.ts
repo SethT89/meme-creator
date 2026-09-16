@@ -125,28 +125,66 @@ describe('applyDragDelta', () => {
 describe('applyResizeDelta', () => {
   const layer: Layer = { id: 'f1', label: 'Caption 1', x: 100, y: 100, width: 200, height: 100, fontSize: 32, heightAuto: true }
 
-  it('grows width and height by the screen delta divided by the display scale, and turns off heightAuto', () => {
-    const resized = applyResizeDelta(layer, 50, 20, 0.5)
+  it('bottom-right (xSign 1, ySign 1) grows width and height, keeps position, turns off heightAuto', () => {
+    const resized = applyResizeDelta(layer, 50, 20, 0.5, 1, 1)
     expect(resized.width).toBe(300) // 200 + 50/0.5
     expect(resized.height).toBe(140) // 100 + 20/0.5
-    expect(resized.heightAuto).toBe(false)
-    expect(resized.x).toBe(100) // position unchanged
+    expect(resized.x).toBe(100)
     expect(resized.y).toBe(100)
+    expect(resized.heightAuto).toBe(false)
   })
 
-  it('shrinks width and height for a negative delta', () => {
-    const resized = applyResizeDelta(layer, -50, -20, 1)
-    expect(resized.width).toBe(150)
-    expect(resized.height).toBe(80)
+  it('top-left (xSign -1, ySign -1) grows width/height while anchoring the opposite corner', () => {
+    const resized = applyResizeDelta(layer, -50, -20, 1, -1, -1)
+    expect(resized.width).toBe(250) // 200 - (-50)
+    expect(resized.height).toBe(120) // 100 - (-20)
+    expect(resized.x).toBe(50) // (100+200) - 250, right edge stays at 300
+    expect(resized.y).toBe(80) // (100+100) - 120, bottom edge stays at 200
+    expect(resized.heightAuto).toBe(false)
   })
 
-  it('clamps width to MIN_LAYER_SIZE instead of going smaller or negative', () => {
-    const resized = applyResizeDelta(layer, -10000, 0, 1)
+  it('right-mid (xSign 1, ySign 0) only changes width — height/y/heightAuto untouched', () => {
+    const resized = applyResizeDelta(layer, 40, 999, 1, 1, 0)
+    expect(resized.width).toBe(240)
+    expect(resized.height).toBe(layer.height)
+    expect(resized.y).toBe(layer.y)
+    expect(resized.heightAuto).toBe(true) // only width changed, so auto-height is untouched
+  })
+
+  it('left-mid (xSign -1, ySign 0) changes width and x, anchored on the right edge', () => {
+    const resized = applyResizeDelta(layer, -40, 999, 1, -1, 0)
+    expect(resized.width).toBe(240) // 200 - (-40)
+    expect(resized.x).toBe(60) // (100+200) - 240
+    expect(resized.height).toBe(layer.height)
+  })
+
+  it('bottom-mid (xSign 0, ySign 1) only changes height — width/x untouched, turns off heightAuto', () => {
+    const resized = applyResizeDelta(layer, 999, 30, 1, 0, 1)
+    expect(resized.height).toBe(130)
+    expect(resized.width).toBe(layer.width)
+    expect(resized.x).toBe(layer.x)
+    expect(resized.heightAuto).toBe(false)
+  })
+
+  it('top-mid (xSign 0, ySign -1) changes height and y, anchored on the bottom edge', () => {
+    const resized = applyResizeDelta(layer, 999, -30, 1, 0, -1)
+    expect(resized.height).toBe(130) // 100 - (-30)
+    expect(resized.y).toBe(70) // (100+100) - 130
+  })
+
+  it('clamps width to MIN_LAYER_SIZE when shrinking past the minimum from the right edge', () => {
+    const resized = applyResizeDelta(layer, -10000, 0, 1, 1, 0)
     expect(resized.width).toBe(MIN_LAYER_SIZE)
   })
 
-  it('clamps height to MIN_LAYER_SIZE instead of going smaller or negative', () => {
-    const resized = applyResizeDelta(layer, 0, -10000, 1)
+  it('clamps width to MIN_LAYER_SIZE when shrinking past the minimum from the left edge, still anchored on the right', () => {
+    const resized = applyResizeDelta(layer, 10000, 0, 1, -1, 0)
+    expect(resized.width).toBe(MIN_LAYER_SIZE)
+    expect(resized.x).toBe(layer.x + layer.width - MIN_LAYER_SIZE)
+  })
+
+  it('clamps height to MIN_LAYER_SIZE when shrinking past the minimum from the bottom edge', () => {
+    const resized = applyResizeDelta(layer, 0, -10000, 1, 0, 1)
     expect(resized.height).toBe(MIN_LAYER_SIZE)
   })
 })

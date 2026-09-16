@@ -84,8 +84,47 @@ export function applyDragDelta(
 
 export const MIN_LAYER_SIZE = 20
 
-export function applyResizeDelta(layer: Layer, deltaXPx: number, deltaYPx: number, displayScale: number): Layer {
-  const width = Math.max(MIN_LAYER_SIZE, layer.width + deltaXPx / displayScale)
-  const height = Math.max(MIN_LAYER_SIZE, layer.height + deltaYPx / displayScale)
-  return { ...layer, width, height, heightAuto: false }
+// Which edge(s) a resize handle controls. +1 = right/bottom edge (growing
+// moves that edge further out, opposite edge fixed). -1 = left/top edge
+// (growing moves that edge further out the other way, opposite edge fixed).
+// 0 = that axis isn't controlled by this handle (midpoints only control one
+// axis; corners control both).
+export type ResizeSign = -1 | 0 | 1
+
+export function applyResizeDelta(
+  layer: Layer,
+  deltaXPx: number,
+  deltaYPx: number,
+  displayScale: number,
+  xSign: ResizeSign,
+  ySign: ResizeSign,
+): Layer {
+  const deltaX = deltaXPx / displayScale
+  const deltaY = deltaYPx / displayScale
+
+  let x = layer.x
+  let y = layer.y
+  let width = layer.width
+  let height = layer.height
+  let heightAuto = layer.heightAuto
+
+  if (xSign === 1) {
+    width = Math.max(MIN_LAYER_SIZE, layer.width + deltaX)
+  } else if (xSign === -1) {
+    const rightEdge = layer.x + layer.width
+    width = Math.max(MIN_LAYER_SIZE, layer.width - deltaX)
+    x = rightEdge - width
+  }
+
+  if (ySign === 1) {
+    height = Math.max(MIN_LAYER_SIZE, layer.height + deltaY)
+    heightAuto = false
+  } else if (ySign === -1) {
+    const bottomEdge = layer.y + layer.height
+    height = Math.max(MIN_LAYER_SIZE, layer.height - deltaY)
+    y = bottomEdge - height
+    heightAuto = false
+  }
+
+  return { ...layer, x, y, width, height, heightAuto }
 }
