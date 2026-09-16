@@ -532,7 +532,14 @@ export function EditorPage() {
                         // that entirely: React just discards the old subtree
                         // and mounts a fresh one.
                         key={isEditing ? `${layer.id}-edit` : `${layer.id}-view`}
-                        className={`absolute p-1 text-center font-bold text-black outline-none ${
+                        // White fill + black outline (classic meme-text look) —
+                        // legible regardless of what's underneath. Stroke width
+                        // in em so it scales with this box's own font-size
+                        // (itself already scaled to the image via cqw, see
+                        // fontSize below) without a second scaling calc.
+                        // paint-order draws the stroke behind the fill so it
+                        // doesn't eat into/thin the white letterforms.
+                        className={`absolute p-1 text-center font-bold text-white outline-none [-webkit-text-stroke:0.06em_black] [paint-order:stroke_fill] ${
                           isSelected ? 'border border-blue-500' : 'border border-transparent'
                         } ${isEditing ? 'cursor-text' : 'cursor-grab touch-none active:cursor-grabbing'} ${
                           isSelected && !isEditing ? 'hover:underline hover:decoration-blue-500' : ''
