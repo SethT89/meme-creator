@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { CanvasFab } from './CanvasFab'
@@ -26,14 +26,35 @@ describe('CanvasFab', () => {
     expect(screen.getAllByRole('button').slice(0, 4)).toEqual(expectedOrder)
   })
 
-  it('clicking an action button does not close the menu', async () => {
+  it('clicking a still-placeholder action button does not close the menu', async () => {
+    render(<CanvasFab />)
+    await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add Sticker' }))
+
+    expect(screen.getByRole('button', { name: 'Add Sticker' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Close add menu' })).toBeInTheDocument()
+  })
+
+  it('clicking Add Text calls onAddText and closes the menu', async () => {
+    const onAddText = vi.fn()
+    render(<CanvasFab onAddText={onAddText} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Add Text' }))
+
+    expect(onAddText).toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Add Text' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open add menu' })).toBeInTheDocument()
+  })
+
+  it('clicking Add Text closes the menu even when onAddText is not provided', async () => {
     render(<CanvasFab />)
     await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
 
     await userEvent.click(screen.getByRole('button', { name: 'Add Text' }))
 
-    expect(screen.getByRole('button', { name: 'Add Text' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Close add menu' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open add menu' })).toBeInTheDocument()
   })
 
   it('clicking the main FAB again closes the menu', async () => {

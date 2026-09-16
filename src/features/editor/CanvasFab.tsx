@@ -11,8 +11,22 @@ const FAB_ACTIONS = [
   { key: 'text', label: 'Add Text', Icon: Type },
 ] as const
 
-export function CanvasFab() {
+interface CanvasFabProps {
+  // Only Add Text is wired up to a real action so far — the other three
+  // stay no-op placeholders (see FAB_ACTIONS below) until each one has
+  // somewhere real to go.
+  onAddText?: () => void
+}
+
+export function CanvasFab({ onAddText }: CanvasFabProps) {
   const [open, setOpen] = useState(false)
+
+  function handleActionClick(key: (typeof FAB_ACTIONS)[number]['key']) {
+    if (key === 'text') {
+      onAddText?.()
+      setOpen(false)
+    }
+  }
 
   // Closes the menu on a click anywhere outside it — the same document-level
   // pattern EditorPage already uses to deselect the property bar. Only
@@ -46,6 +60,7 @@ export function CanvasFab() {
             <button
               type="button"
               aria-label={label}
+              onClick={() => handleActionClick(key)}
               className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:opacity-90 active:opacity-80"
             >
               <Icon className="h-4 w-4" />
