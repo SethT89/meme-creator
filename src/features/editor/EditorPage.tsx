@@ -253,7 +253,7 @@ export function EditorPage() {
       </div>
 
       <div className="flex justify-center">
-        <div className="relative inline-block @container rounded-lg bg-[repeating-conic-gradient(#00000010_0%_25%,transparent_0%_50%)] bg-[length:20px_20px]">
+        <div className="relative inline-block rounded-lg bg-[repeating-conic-gradient(#00000010_0%_25%,transparent_0%_50%)] bg-[length:20px_20px]">
           {source.type === 'template' ? (
             <img
               ref={imgRef}
@@ -271,61 +271,71 @@ export function EditorPage() {
             </div>
           )}
 
-          {source.type === 'template' &&
-            templateRow &&
-            layers.map((layer) => {
-              const leftPct = (layer.x / templateRow.image_width) * 100
-              const topPct = (layer.y / templateRow.image_height) * 100
-              const widthPct = (layer.width / templateRow.image_width) * 100
-              const heightPct = (layer.height / templateRow.image_height) * 100
-              // font-size scaled to the image's own rendered width via a CSS
-              // container query unit, the same percentage-of-image math the
-              // position/width above already use — otherwise font size would
-              // render as a literal screen-px value regardless of how large
-              // the template is actually displayed.
-              const fontSizeCqw = (layer.fontSize / templateRow.image_width) * 100
+          {source.type === 'template' && templateRow && (
+            // A separate, absolutely-positioned @container layer rather than
+            // putting @container directly on the inline-block wrapper above:
+            // an element that shrink-wraps to its content (inline-block) and
+            // is also a size container at once is a circular CSS dependency
+            // browsers resolve by collapsing it to 0×0. This inner div is
+            // inset:0 — its size comes from the already-resolved outer box
+            // (which shrink-wraps to the <img>), not from its own content, so
+            // containment here has nothing circular to resolve.
+            <div className="absolute inset-0 @container">
+              {layers.map((layer) => {
+                const leftPct = (layer.x / templateRow.image_width) * 100
+                const topPct = (layer.y / templateRow.image_height) * 100
+                const widthPct = (layer.width / templateRow.image_width) * 100
+                const heightPct = (layer.height / templateRow.image_height) * 100
+                // font-size scaled to the image's own rendered width via a CSS
+                // container query unit, the same percentage-of-image math the
+                // position/width above already use — otherwise font size would
+                // render as a literal screen-px value regardless of how large
+                // the template is actually displayed.
+                const fontSizeCqw = (layer.fontSize / templateRow.image_width) * 100
 
-              return (
-                <Fragment key={layer.id}>
-                  <div
-                    className="absolute cursor-grab touch-none overflow-hidden border-[1.5px] border-blue-500 bg-white/90 p-1 text-center font-bold text-black active:cursor-grabbing"
-                    style={{
-                      left: `${leftPct}%`,
-                      top: `${topPct}%`,
-                      width: `${widthPct}%`,
-                      height: `${heightPct}%`,
-                      fontSize: `calc(${fontSizeCqw} * 1cqw)`,
-                    }}
-                    onPointerDown={(e) => handlePointerDown(e, layer)}
-                    onPointerMove={handlePointerMove}
-                    onPointerUp={handlePointerUp}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {layer.label}
-                  </div>
-
-                  {selectedFieldId === layer.id && (
+                return (
+                  <Fragment key={layer.id}>
                     <div
-                      className="absolute"
+                      className="absolute cursor-grab touch-none overflow-hidden border-[1.5px] border-blue-500 bg-white/90 p-1 text-center font-bold text-black active:cursor-grabbing"
                       style={{
-                        left: `${leftPct + widthPct / 2}%`,
+                        left: `${leftPct}%`,
                         top: `${topPct}%`,
-                        // Anchored to the field's own position, not the canvas
-                        // center — sits just above the field, horizontally centered on it.
-                        transform: 'translate(-50%, calc(-100% - 8px))',
+                        width: `${widthPct}%`,
+                        height: `${heightPct}%`,
+                        fontSize: `calc(${fontSizeCqw} * 1cqw)`,
                       }}
+                      onPointerDown={(e) => handlePointerDown(e, layer)}
+                      onPointerMove={handlePointerMove}
+                      onPointerUp={handlePointerUp}
                       onClick={(e) => e.stopPropagation()}
                     >
-                      <PropertyBar
-                        fontSize={layer.fontSize}
-                        onChangeFontSize={(px) => handleChangeFontSize(layer.id, px)}
-                        onDelete={() => handleDeleteLayer(layer.id)}
-                      />
+                      {layer.label}
                     </div>
-                  )}
-                </Fragment>
-              )
-            })}
+
+                    {selectedFieldId === layer.id && (
+                      <div
+                        className="absolute"
+                        style={{
+                          left: `${leftPct + widthPct / 2}%`,
+                          top: `${topPct}%`,
+                          // Anchored to the field's own position, not the canvas
+                          // center — sits just above the field, horizontally centered on it.
+                          transform: 'translate(-50%, calc(-100% - 8px))',
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <PropertyBar
+                          fontSize={layer.fontSize}
+                          onChangeFontSize={(px) => handleChangeFontSize(layer.id, px)}
+                          onDelete={() => handleDeleteLayer(layer.id)}
+                        />
+                      </div>
+                    )}
+                  </Fragment>
+                )
+              })}
+            </div>
+          )}
         </div>
       </div>
 
