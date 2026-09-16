@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../supabase'
-import type { Tables } from '../../types/database'
+import type { Tables, Json } from '../../types/database'
 
 export type CreationRow = Tables<'creations'>
 
@@ -35,7 +35,7 @@ interface CreateCreationInput {
   tags: string[]
   sourceType: 'template' | 'freeform'
   templateId: string | null
-  canvasData: Record<string, unknown>
+  canvasData: Json
 }
 
 export function useCreateCreation() {
@@ -67,7 +67,7 @@ interface UpdateCreationInput {
   id: string
   name: string
   tags: string[]
-  canvasData: Record<string, unknown>
+  canvasData: Json
 }
 
 export function useUpdateCreation() {

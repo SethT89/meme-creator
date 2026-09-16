@@ -11,6 +11,7 @@ import { useTemplates, useTemplateFields } from '../../lib/queries/templates'
 import { nextAvailableName } from '../../lib/creationNaming'
 import { layersFromCanvasData, applyDragDelta } from '../../lib/layers'
 import type { Layer } from '../../lib/layers'
+import type { Json } from '../../types/database'
 
 type Source =
   | { type: 'freeform'; name: string }
@@ -185,7 +186,11 @@ export function EditorPage() {
         tags,
         sourceType: activeSource.type,
         templateId: activeSource.type === 'template' ? activeSource.templateId : null,
-        canvasData: { layers },
+        // Layer only has string/number fields, so this is genuinely JSON-safe —
+        // Json's recursive index-signature type just can't verify a concrete
+        // interface without one, which is a known TS/Supabase-generated-types
+        // limitation, not a real type mismatch.
+        canvasData: { layers } as unknown as Json,
       },
       {
         onSuccess: (row) => {
@@ -198,7 +203,7 @@ export function EditorPage() {
 
   function handleQuickSave() {
     if (!savedMeta) return
-    updateCreation.mutate({ id: savedMeta.id, name: savedMeta.name, tags: savedMeta.tags, canvasData: { layers } })
+    updateCreation.mutate({ id: savedMeta.id, name: savedMeta.name, tags: savedMeta.tags, canvasData: { layers } as unknown as Json })
   }
 
   return (
