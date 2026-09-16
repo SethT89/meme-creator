@@ -248,7 +248,7 @@ describe('EditorPage', () => {
     renderEditor()
     await userEvent.click(await screen.findByText('Two Buttons'))
 
-    const handleSelector = '.rounded-full.border-gray-400'
+    const handleSelector = '.border-blue-500.bg-white'
     expect(document.querySelectorAll(handleSelector)).toHaveLength(0)
 
     await userEvent.click(screen.getByText('Caption 1'))

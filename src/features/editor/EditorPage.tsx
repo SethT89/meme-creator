@@ -389,7 +389,7 @@ export function EditorPage() {
                       // and mounts a fresh one.
                       key={isEditing ? `${layer.id}-edit` : `${layer.id}-view`}
                       className={`absolute p-1 text-center font-bold text-black ${
-                        isSelected ? 'border border-dashed border-gray-400' : 'border border-transparent'
+                        isSelected ? 'border border-blue-500' : 'border border-transparent'
                       } ${isEditing ? 'cursor-text' : 'cursor-grab touch-none active:cursor-grabbing'}`}
                       style={{
                         left: `${leftPct}%`,
@@ -461,7 +461,7 @@ export function EditorPage() {
                         RESIZE_HANDLES.map((handle) => (
                           <div
                             key={handle.key}
-                            className="absolute h-2.5 w-2.5 touch-none rounded-full border border-gray-400 bg-white"
+                            className="absolute h-2.5 w-2.5 touch-none border border-blue-500 bg-white"
                             style={{ top: handle.top, left: handle.left, transform: 'translate(-50%, -50%)', cursor: handle.cursor }}
                             onPointerDown={(e) => handleResizePointerDown(e, layer, handle.xSign, handle.ySign)}
                             onPointerMove={handleResizePointerMove}
