@@ -57,4 +57,19 @@ describe('TemplateSidebar', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Search All Memes' }))
     expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
+
+  it('is collapsed by default and expands into a drawer when its toggle is clicked', async () => {
+    renderWithQuery(<TemplateSidebar selectedTemplateId={undefined} onSelectTemplate={vi.fn()} />)
+
+    // The template list isn't visible until the drawer is opened, on narrow
+    // viewports — but jsdom doesn't do real layout/media queries, so this
+    // asserts the drawer's own open/closed state via its toggle button
+    // rather than actual visibility, which is verified live in the browser
+    // (see the plan's final task).
+    const toggle = await screen.findByRole('button', { name: /templates/i })
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+
+    await userEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  })
 })

@@ -19,14 +19,16 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
   const { data: templates = [] } = useTemplatesByUsage()
   const logUsage = useLogTemplateUsage()
   const [searchOpen, setSearchOpen] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(false)
 
   function pick(t: { id: string; name: string; blank_image_url: string; image_width: number; image_height: number }) {
     logUsage.mutate(t.id)
     onSelectTemplate({ id: t.id, name: t.name, blankImageUrl: t.blank_image_url, imageWidth: t.image_width, imageHeight: t.image_height })
+    setDrawerOpen(false)
   }
 
-  return (
-    <div className="flex h-full w-56 shrink-0 flex-col">
+  const listContent = (
+    <>
       <div className="flex-1 space-y-2 overflow-y-auto">
         {templates.map((t) => (
           <button
@@ -53,6 +55,30 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
       >
         Search All Memes
       </button>
+    </>
+  )
+
+  return (
+    <>
+      {/* Mobile: a toggle that expands the list as a slide-out overlay
+          instead of permanently occupying layout width. Desktop keeps the
+          permanent column; both render the same listContent underneath. */}
+      <button
+        type="button"
+        aria-expanded={drawerOpen}
+        onClick={() => setDrawerOpen((open) => !open)}
+        className="mb-2 w-full rounded-md border border-border p-2 text-left text-sm font-medium sm:hidden"
+      >
+        {drawerOpen ? '✕ Close Templates' : '☰ Templates'}
+      </button>
+      {drawerOpen && (
+        <div className="fixed inset-0 z-10 flex sm:hidden">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setDrawerOpen(false)} />
+          <div className="relative flex h-full w-64 flex-col bg-background p-3 shadow-lg">{listContent}</div>
+        </div>
+      )}
+
+      <div className="hidden h-full w-56 shrink-0 flex-col sm:flex">{listContent}</div>
 
       <SearchTemplatesModal
         open={searchOpen}
@@ -62,6 +88,6 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
           setSearchOpen(false)
         }}
       />
-    </div>
+    </>
   )
 }
