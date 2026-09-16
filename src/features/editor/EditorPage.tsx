@@ -1,5 +1,6 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Button } from '../../components/ui/button'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
@@ -61,6 +62,11 @@ export function EditorPage() {
   const [layers, setLayers] = useState<Layer[]>([])
   const [layersSeededFor, setLayersSeededFor] = useState<string | undefined>(undefined)
   const imgRef = useRef<HTMLImageElement>(null)
+  const canvasScrollRef = useRef<HTMLDivElement>(null)
+  // Fixed-position (viewport pixel) anchor for the portaled PropertyBar —
+  // see the useLayoutEffect below for why this is measured into state
+  // rather than read from imgRef.current during render.
+  const [propertyBarPos, setPropertyBarPos] = useState<{ left: number; top: number } | null>(null)
   const dragState = useRef<{
     id: string
     startX: number
@@ -89,6 +95,48 @@ export function EditorPage() {
     document.addEventListener('click', handleDocumentClick)
     return () => document.removeEventListener('click', handleDocumentClick)
   }, [])
+
+  // PropertyBar is portaled to document.body (see its render below, inside
+  // the layers map) so it can float above every other on-page element,
+  // including ones outside the canvas's own DOM subtree — nesting it inside
+  // the @container div used for font-size scaling traps it in that
+  // container's own stacking context, and no z-index on any descendant can
+  // escape it (confirmed live: even z-index 9999 on every ancestor up to
+  // the canvas scroll area lost to a plain static sibling button elsewhere
+  // on the page). Its fixed pixel position is measured here, in an effect,
+  // rather than read from imgRef.current during render — React's rules
+  // correctly flag a ref read during render as unsafe, since ref updates
+  // don't trigger a re-render and can be inconsistent under concurrent
+  // rendering. Recomputed whenever the selected layer, its position, or the
+  // template changes, and again on scroll/resize, since neither of those
+  // changes React state on its own.
+  useLayoutEffect(() => {
+    const templateRow = source?.type === 'template' ? allTemplates.find((t) => t.id === source.templateId) : undefined
+    const layer = layers.find((l) => l.id === selectedFieldId)
+    // Nothing to measure — and nothing to reset either: the render below
+    // already gates the portal on `isSelected`, so a stale propertyBarPos
+    // simply won't be used once nothing (or a different layer) is selected.
+    if (!layer || !templateRow) return
+    function measure() {
+      if (!imgRef.current || !templateRow || !layer) return
+      const imgRect = imgRef.current.getBoundingClientRect()
+      const leftPct = (layer.x / templateRow.image_width) * 100
+      const topPct = (layer.y / templateRow.image_height) * 100
+      const widthPct = (layer.width / templateRow.image_width) * 100
+      setPropertyBarPos({
+        left: imgRect.left + ((leftPct + widthPct / 2) / 100) * imgRect.width,
+        top: imgRect.top + (topPct / 100) * imgRect.height,
+      })
+    }
+    measure()
+    const scrollEl = canvasScrollRef.current
+    scrollEl?.addEventListener('scroll', measure)
+    window.addEventListener('resize', measure)
+    return () => {
+      scrollEl?.removeEventListener('scroll', measure)
+      window.removeEventListener('resize', measure)
+    }
+  }, [source, allTemplates, layers, selectedFieldId])
 
   // When editing an existing creation, sync local state from it the first time
   // it loads for this id — done during render (not in an effect) so it doesn't
@@ -366,7 +414,7 @@ export function EditorPage() {
           </div>
         </div>
 
-        <div className="flex min-h-0 flex-1 items-start justify-center overflow-auto">
+        <div ref={canvasScrollRef} className="flex min-h-0 flex-1 items-start justify-center overflow-auto">
           <div
             // sm:mr-12 sm:mb-4 reserve exactly the room CanvasFab needs
             // outside this box's own right/bottom edges (it matches the
@@ -546,25 +594,28 @@ export function EditorPage() {
                           ))}
                       </div>
 
-                      {isSelected && (
-                        <div
-                          className="absolute"
-                          style={{
-                            left: `${leftPct + widthPct / 2}%`,
-                            top: `${topPct}%`,
-                            // Anchored to the field's own position, not the canvas
-                            // center — sits just above the field, horizontally centered on it.
-                            transform: 'translate(-50%, calc(-100% - 8px))',
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <PropertyBar
-                            fontSize={layer.fontSize}
-                            onChangeFontSize={(px) => handleChangeFontSize(layer.id, px)}
-                            onDelete={() => handleDeleteLayer(layer.id)}
-                          />
-                        </div>
-                      )}
+                      {isSelected &&
+                        propertyBarPos &&
+                        createPortal(
+                          <div
+                            className="fixed z-50"
+                            style={{
+                              left: propertyBarPos.left,
+                              top: propertyBarPos.top,
+                              // Anchored to the field's own position — sits
+                              // just above the field, horizontally centered on it.
+                              transform: 'translate(-50%, calc(-100% - 8px))',
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <PropertyBar
+                              fontSize={layer.fontSize}
+                              onChangeFontSize={(px) => handleChangeFontSize(layer.id, px)}
+                              onDelete={() => handleDeleteLayer(layer.id)}
+                            />
+                          </div>,
+                          document.body,
+                        )}
                     </Fragment>
                   )
                 })}
