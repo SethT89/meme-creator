@@ -111,6 +111,32 @@ export type Database = {
           },
         ]
       }
+      template_usage_events: {
+        Row: {
+          created_at: string
+          id: string
+          template_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          template_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          template_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "template_usage_events_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       templates: {
         Row: {
           blank_image_url: string
@@ -121,6 +147,7 @@ export type Database = {
           image_height: number
           image_width: number
           name: string
+          tags: string[]
         }
         Insert: {
           blank_image_url: string
@@ -131,6 +158,7 @@ export type Database = {
           image_height: number
           image_width: number
           name: string
+          tags?: string[]
         }
         Update: {
           blank_image_url?: string
@@ -141,6 +169,7 @@ export type Database = {
           image_height?: number
           image_width?: number
           name?: string
+          tags?: string[]
         }
         Relationships: []
       }
