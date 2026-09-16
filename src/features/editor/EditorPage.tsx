@@ -391,7 +391,7 @@ export function EditorPage() {
                       className={`absolute p-1 text-center font-bold text-black outline-none ${
                         isSelected ? 'border border-blue-500' : 'border border-transparent'
                       } ${isEditing ? 'cursor-text' : 'cursor-grab touch-none active:cursor-grabbing'} ${
-                        isSelected && !isEditing ? 'hover:underline' : ''
+                        isSelected && !isEditing ? 'hover:underline hover:decoration-blue-500' : ''
                       }`}
                       style={{
                         left: `${leftPct}%`,
