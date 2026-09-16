@@ -35,6 +35,7 @@ interface CreateCreationInput {
   tags: string[]
   sourceType: 'template' | 'freeform'
   templateId: string | null
+  canvasData: Record<string, unknown>
 }
 
 export function useCreateCreation() {
@@ -49,6 +50,7 @@ export function useCreateCreation() {
           source_type: input.sourceType,
           template_id: input.templateId,
           status: 'final',
+          canvas_data: input.canvasData,
         })
         .select()
         .single()
@@ -65,6 +67,7 @@ interface UpdateCreationInput {
   id: string
   name: string
   tags: string[]
+  canvasData: Record<string, unknown>
 }
 
 export function useUpdateCreation() {
@@ -73,7 +76,7 @@ export function useUpdateCreation() {
     mutationFn: async (input: UpdateCreationInput) => {
       const { data, error } = await supabase
         .from('creations')
-        .update({ name: input.name, tags: input.tags })
+        .update({ name: input.name, tags: input.tags, canvas_data: input.canvasData })
         .eq('id', input.id)
         .select()
         .single()

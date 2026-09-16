@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
-import { useCreations, useCreateCreation } from './creations'
+import { useCreations, useCreateCreation, useUpdateCreation } from './creations'
 
 const mockRow = {
   id: '1',
@@ -18,17 +18,33 @@ const mockRow = {
   updated_at: '2026-01-01T00:00:00Z',
 }
 
+let lastInsertArgs: unknown
+let lastUpdateArgs: unknown
+
 vi.mock('../supabase', () => ({
   supabase: {
     from: () => ({
       select: () => ({
         order: () => Promise.resolve({ data: [mockRow], error: null }),
       }),
-      insert: () => ({
-        select: () => ({
-          single: () => Promise.resolve({ data: mockRow, error: null }),
-        }),
-      }),
+      insert: (args: unknown) => {
+        lastInsertArgs = args
+        return {
+          select: () => ({
+            single: () => Promise.resolve({ data: mockRow, error: null }),
+          }),
+        }
+      },
+      update: (args: unknown) => {
+        lastUpdateArgs = args
+        return {
+          eq: () => ({
+            select: () => ({
+              single: () => Promise.resolve({ data: mockRow, error: null }),
+            }),
+          }),
+        }
+      },
     }),
   },
 }))
@@ -49,8 +65,37 @@ describe('useCreations', () => {
 describe('useCreateCreation', () => {
   it('inserts a creation and returns the created row', async () => {
     const { result } = renderHook(() => useCreateCreation(), { wrapper })
-    result.current.mutate({ name: 'Drake 1', tags: ['funny'], sourceType: 'template', templateId: 'tmpl-1' })
+    result.current.mutate({ name: 'Drake 1', tags: ['funny'], sourceType: 'template', templateId: 'tmpl-1', canvasData: {} })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(result.current.data).toEqual(mockRow)
+  })
+
+  it('writes canvasData as the canvas_data column', async () => {
+    const { result } = renderHook(() => useCreateCreation(), { wrapper })
+    result.current.mutate({
+      name: 'Drake 1',
+      tags: ['funny'],
+      sourceType: 'template',
+      templateId: 'tmpl-1',
+      canvasData: { layers: [{ id: 'f1', label: 'Caption 1', x: 1, y: 2, width: 3, height: 4, fontSize: 5 }] },
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(lastInsertArgs).toMatchObject({
+      canvas_data: { layers: [{ id: 'f1', label: 'Caption 1', x: 1, y: 2, width: 3, height: 4, fontSize: 5 }] },
+    })
+  })
+})
+
+describe('useUpdateCreation', () => {
+  it('writes canvasData as the canvas_data column', async () => {
+    const { result } = renderHook(() => useUpdateCreation(), { wrapper })
+    result.current.mutate({
+      id: '1',
+      name: 'Drake 1',
+      tags: ['funny'],
+      canvasData: { layers: [] },
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(lastUpdateArgs).toMatchObject({ canvas_data: { layers: [] } })
   })
 })
