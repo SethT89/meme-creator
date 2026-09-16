@@ -111,8 +111,16 @@ describe('EditorPage', () => {
     expect(screen.getByText('Caption 1')).toBeInTheDocument()
     expect(screen.getByText('Caption 2')).toBeInTheDocument()
     expect(screen.getByText('Caption 3')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '+ Text' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Export' })).toBeDisabled()
+    expect(screen.queryByRole('button', { name: '+ Text' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '+ Sticker' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open add menu' })).toBeInTheDocument()
+  })
+
+  it('does not show the add-menu FAB until a template is loaded', async () => {
+    renderEditor()
+    await screen.findByRole('button', { name: 'Two Buttons' }) // wait for sidebar to load
+    expect(screen.queryByRole('button', { name: 'Open add menu' })).not.toBeInTheDocument()
   })
 
   it('selecting one field shows the property bar for it; selecting another moves it; clicking the image hides it', async () => {

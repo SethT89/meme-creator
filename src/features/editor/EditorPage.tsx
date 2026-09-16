@@ -6,6 +6,7 @@ import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { TemplateSidebar } from './TemplateSidebar'
 import type { SelectedTemplate } from './TemplateSidebar'
 import { PropertyBar } from './PropertyBar'
+import { CanvasFab } from './CanvasFab'
 import { SaveDialog } from './SaveDialog'
 import { useCreation, useCreateCreation, useCreations, useUpdateCreation } from '../../lib/queries/creations'
 import { useTemplates, useTemplateFields } from '../../lib/queries/templates'
@@ -339,12 +340,6 @@ export function EditorPage() {
           )}
           <div className="flex flex-wrap gap-1.5">
             <Button size="sm" variant="outline" disabled>
-              + Text
-            </Button>
-            <Button size="sm" variant="outline" disabled>
-              + Sticker
-            </Button>
-            <Button size="sm" variant="outline" disabled>
               Export
             </Button>
 
@@ -540,6 +535,7 @@ export function EditorPage() {
                 })}
               </div>
             )}
+            {source?.type === 'template' && <CanvasFab />}
           </div>
         </div>
       </div>
