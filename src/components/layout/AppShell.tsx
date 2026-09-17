@@ -2,16 +2,16 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { SegmentedControl } from '../ui/segmented-control'
 
 const SECTION_OPTIONS = [
-  { value: 'new', label: 'New Meme' },
-  { value: 'saved', label: 'My Saved Memes' },
+  { value: 'new', label: 'Create' },
+  { value: 'saved', label: 'My Saves' },
 ]
 
 export function AppShell() {
   const location = useLocation()
   const navigate = useNavigate()
 
-  // Anything under / (including /editor/:id) counts as "New Meme" — that's
-  // the creation flow. /gallery is the only "My Saved Memes" route.
+  // Anything under / (including /editor/:id) counts as "Create" — that's
+  // the creation flow. /gallery is the only "My Saves" route.
   const activeSection = location.pathname === '/gallery' ? 'saved' : 'new'
 
   return (

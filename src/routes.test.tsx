@@ -59,14 +59,14 @@ describe('routes', () => {
     expect(screen.getByRole('heading', { name: 'My Creations' })).toBeInTheDocument()
   })
 
-  it('the header toggle actually navigates between New Meme and My Saved Memes', async () => {
+  it('the header toggle actually navigates between Create and My Saves', async () => {
     renderAt('/')
     expect(screen.getByRole('button', { name: 'Search All Memes' })).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'My Saved Memes' }))
+    await userEvent.click(screen.getByRole('button', { name: 'My Saves' }))
     expect(await screen.findByRole('heading', { name: 'My Creations' })).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'New Meme' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Create' }))
     expect(await screen.findByRole('button', { name: 'Search All Memes' })).toBeInTheDocument()
   })
 })
