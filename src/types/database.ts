@@ -142,6 +142,7 @@ export type Database = {
           blank_image_url: string
           created_at: string
           created_by: string
+          description: string | null
           example_image_url: string
           id: string
           image_height: number
@@ -153,6 +154,7 @@ export type Database = {
           blank_image_url: string
           created_at?: string
           created_by?: string
+          description?: string | null
           example_image_url: string
           id?: string
           image_height: number
@@ -164,6 +166,7 @@ export type Database = {
           blank_image_url?: string
           created_at?: string
           created_by?: string
+          description?: string | null
           example_image_url?: string
           id?: string
           image_height?: number

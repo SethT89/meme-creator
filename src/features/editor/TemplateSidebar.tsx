@@ -70,15 +70,23 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
             // "pressed in" once picked. active: is inherently momentary
             // (only applies while the mouse button is actually down), so
             // clicking never leaves the card visually stuck.
-            className={`flex w-full scale-100 items-center gap-3 rounded-md border p-2 text-left text-sm shadow-sm outline-none transition-transform hover:bg-muted focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 active:scale-[0.98] active:bg-border ${
+            className={`flex w-full scale-100 flex-col rounded-md border p-2 text-left text-sm shadow-sm outline-none transition-transform hover:bg-muted focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 active:scale-[0.98] active:bg-border ${
               selectedTemplateId === t.id ? 'border-blue-500' : 'border-border'
             }`}
           >
-            <span
-              className="h-14 w-14 shrink-0 rounded bg-muted bg-cover bg-center"
-              style={{ backgroundImage: `url(${t.blank_image_url})` }}
-            />
-            {t.name}
+            <div className="flex w-full items-center gap-3">
+              <span
+                className="h-14 w-14 shrink-0 rounded bg-muted bg-cover bg-center"
+                style={{ backgroundImage: `url(${t.blank_image_url})` }}
+              />
+              {t.name}
+            </div>
+            {/* Expands only the selected card, only when it actually has a
+                summary — most templates don't yet (description is nullable,
+                hand-written per template as they get one). */}
+            {selectedTemplateId === t.id && t.description && (
+              <p className="mt-2 text-xs text-muted-foreground">{t.description}</p>
+            )}
           </button>
         ))}
       </div>

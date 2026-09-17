@@ -5,8 +5,15 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TemplateSidebar } from './TemplateSidebar'
 
 const mockTemplates = [
-  { id: 't1', name: 'Two Buttons', blank_image_url: 'https://example.com/two-buttons.jpg', image_width: 600, image_height: 908 },
-  { id: 't2', name: 'Drake', blank_image_url: 'https://example.com/drake.jpg', image_width: 500, image_height: 500 },
+  {
+    id: 't1',
+    name: 'Two Buttons',
+    blank_image_url: 'https://example.com/two-buttons.jpg',
+    image_width: 600,
+    image_height: 908,
+    description: 'The Two Buttons meme shows two difficult decisions.',
+  },
+  { id: 't2', name: 'Drake', blank_image_url: 'https://example.com/drake.jpg', image_width: 500, image_height: 500, description: null },
 ]
 // Two clicks on Drake, none on Two Buttons — Drake should render first.
 const mockUsageEvents = [{ template_id: 't2' }, { template_id: 't2' }]
@@ -81,5 +88,22 @@ describe('TemplateSidebar', () => {
 
     await userEvent.click(toggle)
     expect(toggle).toHaveAttribute('aria-expanded', 'true')
+  })
+
+  it('expands the selected card to show its description', async () => {
+    renderWithQuery(<TemplateSidebar selectedTemplateId="t1" onSelectTemplate={vi.fn()} />)
+    expect(await screen.findByText(/two difficult decisions/i)).toBeInTheDocument()
+  })
+
+  it('does not show a description for an unselected card, even if it has one', async () => {
+    renderWithQuery(<TemplateSidebar selectedTemplateId={undefined} onSelectTemplate={vi.fn()} />)
+    await screen.findByRole('button', { name: /Two Buttons/i })
+    expect(screen.queryByText(/two difficult decisions/i)).not.toBeInTheDocument()
+  })
+
+  it('shows nothing extra when the selected card has no description', async () => {
+    renderWithQuery(<TemplateSidebar selectedTemplateId="t2" onSelectTemplate={vi.fn()} />)
+    const drakeButton = await screen.findByRole('button', { name: 'Drake' })
+    expect(drakeButton).toHaveTextContent(/^Drake$/)
   })
 })
