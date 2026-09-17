@@ -63,12 +63,12 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
             key={t.id}
             type="button"
             onClick={() => pick(t)}
-            className={`flex w-full items-center gap-2 rounded-md p-1.5 text-left text-sm ${
+            className={`flex w-full items-center gap-3 rounded-md p-2 text-left text-sm ${
               selectedTemplateId === t.id ? 'bg-muted' : 'hover:bg-muted'
             }`}
           >
             <span
-              className="h-10 w-10 shrink-0 rounded bg-muted bg-cover bg-center"
+              className="h-14 w-14 shrink-0 rounded bg-muted bg-cover bg-center"
               style={{ backgroundImage: `url(${t.blank_image_url})` }}
             />
             {t.name}
