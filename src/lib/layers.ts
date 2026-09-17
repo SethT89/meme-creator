@@ -1,10 +1,14 @@
-export interface Layer {
+interface BaseLayer {
   id: string
-  label: string
   x: number
   y: number
   width: number
   height: number
+}
+
+export interface TextLayer extends BaseLayer {
+  type: 'text'
+  label: string
   fontSize: number
   // true (the default): height isn't rendered as a fixed box dimension —
   // the box grows to fit wrapped text instead, so a bigger font or more
@@ -13,6 +17,13 @@ export interface Layer {
   // and text wraps/clips within it like any ordinary text box.
   heightAuto: boolean
 }
+
+export interface ImageLayer extends BaseLayer {
+  type: 'image'
+  src: string
+}
+
+export type Layer = TextLayer | ImageLayer
 
 export const SIZE_PRESETS: { label: string; px: number }[] = [
   { label: 'Small', px: 24 },
@@ -46,6 +57,7 @@ interface TemplateFieldRow {
 
 export function initialLayersFromFields(fields: TemplateFieldRow[]): Layer[] {
   return fields.map((f) => ({
+    type: 'text',
     id: f.id,
     label: f.label,
     x: f.position_x,
@@ -63,11 +75,12 @@ export function initialLayersFromFields(fields: TemplateFieldRow[]): Layer[] {
 // of the template's own dimensions; heightAuto (like every other layer)
 // means the fixed starting height below only matters for the initial
 // drag-centering math, not for clipping.
-export function createBlankTextLayer(imageWidth: number, imageHeight: number): Layer {
+export function createBlankTextLayer(imageWidth: number, imageHeight: number): TextLayer {
   const fontSize = 36
   const width = imageWidth * 0.4
   const height = fontSize * 1.5
   return {
+    type: 'text',
     id: crypto.randomUUID(),
     label: '',
     x: (imageWidth - width) / 2,
@@ -82,9 +95,10 @@ export function createBlankTextLayer(imageWidth: number, imageHeight: number): L
 export function layersFromCanvasData(canvasData: unknown, fallbackFields: TemplateFieldRow[]): Layer[] {
   const layers = (canvasData as { layers?: Layer[] } | null | undefined)?.layers
   if (layers && layers.length > 0) {
-    // Saved before heightAuto existed: default it to true rather than
-    // leaving it undefined, so every in-memory Layer is fully populated.
-    return layers.map((l) => ({ ...l, heightAuto: l.heightAuto ?? true }))
+    // Saved before heightAuto/type existed: default heightAuto to true and
+    // type to 'text' — every layer saved before this feature shipped was a
+    // text layer, so this is an unambiguous migration with no schema change.
+    return layers.map((l) => (l.type === 'image' ? l : { ...l, type: 'text' as const, heightAuto: l.heightAuto ?? true }))
   }
   return initialLayersFromFields(fallbackFields)
 }
@@ -113,14 +127,14 @@ export const MIN_LAYER_SIZE = 20
 // axis; corners control both).
 export type ResizeSign = -1 | 0 | 1
 
-export function applyResizeDelta(
-  layer: Layer,
+export function applyResizeDelta<T extends Layer>(
+  layer: T,
   deltaXPx: number,
   deltaYPx: number,
   displayScale: number,
   xSign: ResizeSign,
   ySign: ResizeSign,
-): Layer {
+): T {
   const deltaX = deltaXPx / displayScale
   const deltaY = deltaYPx / displayScale
 
@@ -128,7 +142,9 @@ export function applyResizeDelta(
   let y = layer.y
   let width = layer.width
   let height = layer.height
-  let heightAuto = layer.heightAuto
+  // heightAuto only exists on a TextLayer — an ImageLayer always has an
+  // explicit height, so there's nothing to track here for one.
+  let heightAuto = layer.type === 'text' ? layer.heightAuto : undefined
 
   if (xSign === 1) {
     width = Math.max(MIN_LAYER_SIZE, layer.width + deltaX)
@@ -148,5 +164,5 @@ export function applyResizeDelta(
     heightAuto = false
   }
 
-  return { ...layer, x, y, width, height, heightAuto }
+  return (layer.type === 'text' ? { ...layer, x, y, width, height, heightAuto: heightAuto ?? true } : { ...layer, x, y, width, height }) as T
 }

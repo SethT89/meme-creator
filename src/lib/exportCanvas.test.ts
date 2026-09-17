@@ -64,7 +64,7 @@ describe('renderCreationToBlob', () => {
 
     const image = document.createElement('img')
     const templateRow = { image_width: 600, image_height: 908 }
-    const layers: Layer[] = [{ id: 'f1', label: 'hi', x: 10, y: 20, width: 100, height: 50, fontSize: 22, heightAuto: true }]
+    const layers: Layer[] = [{ type: 'text', id: 'f1', label: 'hi', x: 10, y: 20, width: 100, height: 50, fontSize: 22, heightAuto: true }]
 
     const blob = await renderCreationToBlob(image, templateRow, layers)
 
@@ -91,7 +91,7 @@ describe('renderCreationToBlob', () => {
 
   it('scales the fixed on-screen padding to match the real-vs-displayed image size ratio', async () => {
     const templateRow = { image_width: 600, image_height: 908 }
-    const layers: Layer[] = [{ id: 'f1', label: 'hi', x: 10, y: 100, width: 200, height: 50, fontSize: 20, heightAuto: true }]
+    const layers: Layer[] = [{ type: 'text', id: 'f1', label: 'hi', x: 10, y: 100, width: 200, height: 50, fontSize: 20, heightAuto: true }]
 
     async function baselineYAt(displayedWidth: number) {
       const { ctx, calls } = mockContext()

@@ -58,8 +58,8 @@ const mockFields = [
 describe('initialLayersFromFields', () => {
   it('maps template_fields rows into layers, preserving order, converting snake_case to camelCase, and defaulting heightAuto to true', () => {
     expect(initialLayersFromFields(mockFields)).toEqual([
-      { id: 'f1', label: 'Caption 1', x: 30, y: 50, width: 220, height: 110, fontSize: 22, heightAuto: true },
-      { id: 'f2', label: 'Caption 2', x: 310, y: 70, width: 220, height: 110, fontSize: 22, heightAuto: true },
+      { type: 'text', id: 'f1', label: 'Caption 1', x: 30, y: 50, width: 220, height: 110, fontSize: 22, heightAuto: true },
+      { type: 'text', id: 'f2', label: 'Caption 2', x: 310, y: 70, width: 220, height: 110, fontSize: 22, heightAuto: true },
     ])
   })
 
@@ -71,6 +71,7 @@ describe('initialLayersFromFields', () => {
 describe('createBlankTextLayer', () => {
   it('creates a blank, centered, auto-height layer sized relative to the image', () => {
     const layer = createBlankTextLayer(600, 908)
+    expect(layer.type).toBe('text')
     expect(layer.label).toBe('')
     expect(layer.fontSize).toBe(36)
     expect(layer.heightAuto).toBe(true)
@@ -90,14 +91,20 @@ describe('layersFromCanvasData', () => {
   const fallbackFields = mockFields
 
   it('returns the saved layers when canvas_data has a non-empty layers array', () => {
-    const saved = { layers: [{ id: 'f1', label: 'Edited', x: 1, y: 2, width: 3, height: 4, fontSize: 5, heightAuto: false }] }
+    const saved = { layers: [{ type: 'text', id: 'f1', label: 'Edited', x: 1, y: 2, width: 3, height: 4, fontSize: 5, heightAuto: false }] }
     expect(layersFromCanvasData(saved, fallbackFields)).toEqual(saved.layers)
   })
 
-  it('defaults heightAuto to true for saved layers from before that field existed', () => {
+  it('defaults heightAuto and type to their text-layer defaults for saved layers from before those fields existed', () => {
     const saved = { layers: [{ id: 'f1', label: 'Edited', x: 1, y: 2, width: 3, height: 4, fontSize: 5 }] }
     const [layer] = layersFromCanvasData(saved, fallbackFields)
-    expect(layer.heightAuto).toBe(true)
+    expect(layer.type).toBe('text')
+    expect((layer as { heightAuto: boolean }).heightAuto).toBe(true)
+  })
+
+  it('leaves an already-saved image layer alone — no text defaults forced onto it', () => {
+    const saved = { layers: [{ type: 'image', id: 'img1', src: 'https://example.com/photo.png', x: 0, y: 0, width: 100, height: 100 }] }
+    expect(layersFromCanvasData(saved, fallbackFields)).toEqual(saved.layers)
   })
 
   it('falls back to deriving from template fields when canvas_data has no layers key', () => {
@@ -110,7 +117,7 @@ describe('layersFromCanvasData', () => {
 })
 
 describe('applyDragDelta', () => {
-  const layer: Layer = { id: 'f1', label: 'Caption 1', x: 100, y: 100, width: 200, height: 100, fontSize: 32, heightAuto: true }
+  const layer: Layer = { type: 'text', id: 'f1', label: 'Caption 1', x: 100, y: 100, width: 200, height: 100, fontSize: 32, heightAuto: true }
 
   it('moves the layer by the screen delta divided by the display scale', () => {
     const moved = applyDragDelta(layer, 50, 0, 0.5, 1000, 1000)
@@ -139,10 +146,16 @@ describe('applyDragDelta', () => {
     const moved = applyDragDelta(layer, 0, 10000, 1, 1000, 1000)
     expect(moved.y).toBe(1000 - layer.height / 2)
   })
+
+  it('also moves an ImageLayer — the delta math only touches x/y/width/height, not the layer kind', () => {
+    const imageLayer: Layer = { type: 'image', id: 'img1', src: 'https://example.com/a.png', x: 100, y: 100, width: 200, height: 100 }
+    const moved = applyDragDelta(imageLayer, 50, 0, 0.5, 1000, 1000)
+    expect(moved).toEqual({ ...imageLayer, x: 200 })
+  })
 })
 
 describe('applyResizeDelta', () => {
-  const layer: Layer = { id: 'f1', label: 'Caption 1', x: 100, y: 100, width: 200, height: 100, fontSize: 32, heightAuto: true }
+  const layer: Layer = { type: 'text', id: 'f1', label: 'Caption 1', x: 100, y: 100, width: 200, height: 100, fontSize: 32, heightAuto: true }
 
   it('bottom-right (xSign 1, ySign 1) grows width and height, keeps position, turns off heightAuto', () => {
     const resized = applyResizeDelta(layer, 50, 20, 0.5, 1, 1)

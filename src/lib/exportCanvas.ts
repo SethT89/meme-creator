@@ -1,4 +1,4 @@
-import type { Layer } from './layers'
+import type { Layer, TextLayer } from './layers'
 
 // Matches this app's real on-screen CSS font stack (Tailwind's default
 // sans stack — confirmed live via getComputedStyle on an actual layer
@@ -64,7 +64,7 @@ export function wrapTextLines(ctx: TextMeasurer, text: string, maxWidth: number)
 // see EditorPage.tsx's layer box className. `scale` is the real-resolution-
 // to-displayed-size ratio (see renderCreationToBlob) — only the fixed CSS
 // padding needs it; everything else is already in real-pixel units.
-function drawLayer(ctx: CanvasRenderingContext2D, layer: Layer, scale: number) {
+function drawLayer(ctx: CanvasRenderingContext2D, layer: TextLayer, scale: number) {
   ctx.font = `bold ${layer.fontSize}px ${FONT_FAMILY}`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'alphabetic'
@@ -124,8 +124,14 @@ export function renderCreationToBlob(
   // unavailable (e.g. an image never attached to the DOM, as in this
   // file's own tests).
   const scale = image.width > 0 ? templateRow.image_width / image.width : 1
+  // Image layers can't actually appear on a template today (Upload Image is
+  // a no-op there — see EditorPage.tsx's handleAddImage), and freeform
+  // export isn't implemented yet, so this only ever draws TextLayers in
+  // practice. Guarding on the type here rather than typing the whole
+  // function around TextLayer[] keeps this function's own signature stable
+  // for when freeform export does land.
   for (const layer of layers) {
-    drawLayer(ctx, layer, scale)
+    if (layer.type === 'text') drawLayer(ctx, layer, scale)
   }
 
   return new Promise((resolve, reject) => {
