@@ -9,9 +9,10 @@ export interface GalleryCardProps {
   }
   onDownload: (id: string) => void
   onOpen: (id: string) => void
+  onDelete: (id: string) => void
 }
 
-export function GalleryCard({ creation, onDownload, onOpen }: GalleryCardProps) {
+export function GalleryCard({ creation, onDownload, onOpen, onDelete }: GalleryCardProps) {
   const [menuOpen, setMenuOpen] = useState(false)
 
   return (
@@ -51,6 +52,15 @@ export function GalleryCard({ creation, onDownload, onOpen }: GalleryCardProps) 
             }}
           >
             Open in editor
+          </div>
+          <div
+            className="cursor-pointer px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+            onClick={() => {
+              setMenuOpen(false)
+              onDelete(creation.id)
+            }}
+          >
+            Delete
           </div>
         </div>
       )}

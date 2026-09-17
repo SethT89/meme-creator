@@ -1,10 +1,21 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useCreations } from '../../lib/queries/creations'
+import { useCreations, useDeleteCreation } from '../../lib/queries/creations'
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { GalleryCard } from './GalleryCard'
 
 export function GalleryPage() {
   const { data: creations = [], isLoading } = useCreations()
+  const deleteCreation = useDeleteCreation()
   const navigate = useNavigate()
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+
+  const pendingDeleteName = creations.find((c) => c.id === pendingDeleteId)?.name
+
+  function confirmDelete() {
+    if (pendingDeleteId) deleteCreation.mutate(pendingDeleteId)
+    setPendingDeleteId(null)
+  }
 
   return (
     <section className="max-w-2xl">
@@ -27,9 +38,19 @@ export function GalleryPage() {
               // out of scope for this plan (see the deferred list in the spec).
             }}
             onOpen={(id) => navigate(`/editor/${id}`)}
+            onDelete={(id) => setPendingDeleteId(id)}
           />
         ))}
       </div>
+
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        title="Delete this creation?"
+        message={`"${pendingDeleteName}" will be permanently deleted. This can't be undone.`}
+        confirmLabel="Delete"
+        onConfirm={confirmDelete}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </section>
   )
 }

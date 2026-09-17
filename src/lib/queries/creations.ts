@@ -89,3 +89,16 @@ export function useUpdateCreation() {
     },
   })
 }
+
+export function useDeleteCreation() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from('creations').delete().eq('id', id)
+      if (error) throw error
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['creations'] })
+    },
+  })
+}
