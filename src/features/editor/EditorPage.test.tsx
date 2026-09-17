@@ -174,13 +174,16 @@ describe('EditorPage', () => {
   })
 
   it('deselects when clicking anywhere on the page, not just the image', async () => {
-    renderEditor()
+    const { container } = renderEditor()
     await userEvent.click(await screen.findByText('Two Buttons'))
     await userEvent.click(screen.getByText('Caption 1'))
     expect(screen.getByText(/size: 22px/i)).toBeInTheDocument()
 
-    // Clicking the page heading — nowhere near the canvas — should still deselect.
-    await userEvent.click(screen.getByRole('heading', { name: 'Editor' }))
+    // Clicking the toolbar row itself (not any button in it) — nowhere near
+    // the canvas, and has no click handler of its own — should still
+    // deselect, via the document-level listener.
+    const toolbarRow = container.querySelector('.justify-between')!
+    await userEvent.click(toolbarRow)
     expect(screen.queryByText(/size: 22px/i)).not.toBeInTheDocument()
   })
 

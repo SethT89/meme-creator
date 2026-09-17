@@ -49,7 +49,9 @@ function renderAt(path: string) {
 describe('routes', () => {
   it('renders the editor (blank canvas) at /', () => {
     renderAt('/')
-    expect(screen.getByRole('heading', { name: 'Editor' })).toBeInTheDocument()
+    // No page heading on the editor (removed — redundant with the page
+    // itself) — "Search All Memes" is unique to this route, unlike Gallery.
+    expect(screen.getByRole('button', { name: 'Search All Memes' })).toBeInTheDocument()
   })
 
   it('renders the gallery page at /gallery', () => {
@@ -59,12 +61,12 @@ describe('routes', () => {
 
   it('the header toggle actually navigates between New Meme and My Saved Memes', async () => {
     renderAt('/')
-    expect(screen.getByRole('heading', { name: 'Editor' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Search All Memes' })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'My Saved Memes' }))
     expect(await screen.findByRole('heading', { name: 'My Creations' })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'New Meme' }))
-    expect(await screen.findByRole('heading', { name: 'Editor' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Search All Memes' })).toBeInTheDocument()
   })
 })

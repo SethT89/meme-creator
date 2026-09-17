@@ -421,7 +421,10 @@ export function EditorPage() {
       <TemplateSidebar selectedTemplateId={source?.type === 'template' ? source.templateId : undefined} onSelectTemplate={handleSelectTemplate} />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <h2 className="mb-3 text-lg font-semibold">{savedMeta ? savedMeta.name : 'Editor'}</h2>
+        {/* No "Editor" placeholder when nothing's saved yet — redundant
+            with the page itself. Once saved, the creation's own name is
+            genuinely useful info, so that still shows. */}
+        {savedMeta && <h2 className="mb-3 text-lg font-semibold">{savedMeta.name}</h2>}
 
         {/* Page-level actions live above the canvas, not overlapping the image —
             only per-field editing controls (PropertyBar) appear on the canvas itself. */}
