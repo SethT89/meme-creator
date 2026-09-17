@@ -539,7 +539,7 @@ export function EditorPage() {
                         // fontSize below) without a second scaling calc.
                         // paint-order draws the stroke behind the fill so it
                         // doesn't eat into/thin the white letterforms.
-                        className={`absolute p-1 text-center font-bold text-white outline-none [-webkit-text-stroke:0.12em_black] [paint-order:stroke_fill] ${
+                        className={`absolute p-1 text-center font-bold text-white outline-none [-webkit-text-stroke:0.24em_black] [paint-order:stroke_fill] ${
                           isSelected ? 'border border-blue-500' : 'border border-transparent'
                         } ${isEditing ? 'cursor-text' : 'cursor-grab touch-none active:cursor-grabbing'} ${
                           isSelected && !isEditing ? 'hover:underline hover:decoration-blue-500' : ''
