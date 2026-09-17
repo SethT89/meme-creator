@@ -466,7 +466,31 @@ export function EditorPage() {
             // CanvasFab overlays the image instead of sitting outside it.
             className="relative inline-block rounded-lg bg-[repeating-conic-gradient(#00000010_0%_25%,transparent_0%_50%)] bg-[length:20px_20px] sm:mr-12 sm:mb-4"
           >
-            {source === null && <div className="h-80 w-80" />}
+            {/* Same fill-available-height approach as the template <img>
+                below (viewport-relative height + aspect-square instead of a
+                fixed h-80 w-80) — a plain <div> has no intrinsic size, so
+                unlike the image this needs an explicit height (not just a
+                max-height) for aspect-square to have anything to derive its
+                width from. Using vh/calc here rather than h-full sidesteps
+                the same shrink-to-fit circularity the image's own comment
+                below describes: this box's parent is inline-block and
+                shrink-wraps to its content's size, so a child whose own
+                size depended on 100% of that parent would never resolve —
+                for the same reason, max-w-full doesn't work here either
+                (it's a percentage of that same indeterminate parent), so
+                unlike the image this also needs an explicit calc(100vw -
+                Npx) max-width, not a percentage one. Found live: a square
+                sized purely from vh overflows horizontally on a
+                narrow-but-tall phone (65vh is ~528px on a 812px-tall
+                375px-wide screen, versus ~153px actually available) — these
+                two constants are the real measured chrome (sidebar +
+                gutters) on each side of the `sm` breakpoint (222px below
+                it, 376px at/above it, both confirmed slope-1 — i.e. exactly
+                `100vw - constant` — across multiple widths), each rounded
+                up slightly to a clean rem value for a small safety margin. */}
+            {source === null && (
+              <div className="aspect-square h-[65vh] max-w-[calc(100vw-14rem)] sm:h-[calc(100vh-19rem)] sm:max-w-[calc(100vw-24rem)] sm:min-h-[240px]" />
+            )}
             {source?.type === 'template' && (
               <img
                 ref={imgRef}
