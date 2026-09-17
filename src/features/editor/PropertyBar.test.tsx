@@ -70,4 +70,20 @@ describe('PropertyBar', () => {
     await userEvent.click(screen.getByText('Delete'))
     expect(onDelete).toHaveBeenCalled()
   })
+
+  it('renders without Font/Size controls when fontSize is not provided (an image layer), but still shows Delete', () => {
+    render(<PropertyBar onDelete={() => {}} />)
+    expect(screen.queryByText('Font')).not.toBeInTheDocument()
+    expect(screen.queryByText(/size:/i)).not.toBeInTheDocument()
+    expect(screen.getByText('Delete')).toBeInTheDocument()
+  })
+
+  it('Delete still works when font controls are hidden', async () => {
+    const onDelete = vi.fn()
+    render(<PropertyBar onDelete={onDelete} />)
+
+    await userEvent.click(screen.getByText('Delete'))
+
+    expect(onDelete).toHaveBeenCalled()
+  })
 })
