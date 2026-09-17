@@ -63,8 +63,15 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
             key={t.id}
             type="button"
             onClick={() => pick(t)}
-            className={`flex w-full items-center gap-3 rounded-md border border-border p-2 text-left text-sm shadow-sm ${
-              selectedTemplateId === t.id ? 'bg-muted' : 'hover:bg-muted'
+            // Selected is its own persistent indicator (blue border), kept
+            // deliberately separate from hover/active — those two use a
+            // plain background change so they read as momentary, ordinary
+            // button feedback rather than the card looking permanently
+            // "pressed in" once picked. active: is inherently momentary
+            // (only applies while the mouse button is actually down), so
+            // clicking never leaves the card visually stuck.
+            className={`flex w-full scale-100 items-center gap-3 rounded-md border p-2 text-left text-sm shadow-sm outline-none transition-transform hover:bg-muted focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1 active:scale-[0.98] active:bg-border ${
+              selectedTemplateId === t.id ? 'border-blue-500' : 'border-border'
             }`}
           >
             <span
