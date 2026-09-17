@@ -179,11 +179,11 @@ describe('EditorPage', () => {
     await userEvent.click(screen.getByText('Caption 1'))
     expect(screen.getByText(/size: 22px/i)).toBeInTheDocument()
 
-    // Clicking the toolbar row itself (not any button in it) — nowhere near
-    // the canvas, and has no click handler of its own — should still
-    // deselect, via the document-level listener.
-    const toolbarRow = container.querySelector('.justify-between')!
-    await userEvent.click(toolbarRow)
+    // Clicking the page's own root wrapper — nowhere near the canvas, and
+    // has no click handler of its own — should still deselect, via the
+    // document-level listener.
+    const pageRoot = container.firstChild as HTMLElement
+    await userEvent.click(pageRoot)
     expect(screen.queryByText(/size: 22px/i)).not.toBeInTheDocument()
   })
 
@@ -261,18 +261,20 @@ describe('EditorPage', () => {
     expect(screen.getByText('Caption 1')).toBeInTheDocument()
   })
 
-  it('saves a new template creation with its real template_id, then shows the Save/Save As split', async () => {
+  it('saves a new template creation with its real template_id, then the menu shows Save and Save As', async () => {
     renderEditor()
     await userEvent.click(await screen.findByText('Two Buttons'))
-    await userEvent.click(screen.getByRole('button', { name: 'Save to Gallery' }))
+    await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Save' }))
 
     const dialog = screen.getByRole('dialog')
-    expect(within(dialog).getByLabelText('Name')).toHaveValue('Two Buttons 1')
+    const savedName = (within(dialog).getByLabelText('Name') as HTMLInputElement).value
     await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
 
-    expect(await screen.findByRole('button', { name: 'Save' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '▾' })).toBeInTheDocument()
-    expect(savedRows.at(-1)).toMatchObject({ name: 'Two Buttons 1', source_type: 'template', template_id: 'tmpl-1' })
+    await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+    expect(screen.getByRole('menuitem', { name: 'Save' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Save As' })).toBeInTheDocument()
+    expect(savedRows.at(-1)).toMatchObject({ name: savedName, source_type: 'template', template_id: 'tmpl-1' })
   })
 
   it('loads an existing template creation at /editor/:id with its real fields and image', async () => {
@@ -283,8 +285,10 @@ describe('EditorPage', () => {
     expect(await screen.findByRole('heading', { name: 'Two Buttons 1' })).toBeInTheDocument()
     expect(screen.getByRole('img', { name: 'Two Buttons' })).toHaveAttribute('src', 'https://example.com/blank.jpg')
     expect(await screen.findByText('Caption 3')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '▾' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+    expect(screen.getByRole('menuitem', { name: 'Save' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Save As' })).toBeInTheDocument()
   })
 
   it('changing the size preset updates the selected box and persists it on save', async () => {
@@ -296,11 +300,11 @@ describe('EditorPage', () => {
     await userEvent.click(screen.getByText('Large'))
     expect(screen.getByText(/size: large/i)).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Save to Gallery' }))
+    await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Save' }))
     const dialog = screen.getByRole('dialog')
     await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
 
-    await screen.findByRole('button', { name: 'Save' })
     const saved = savedRows.at(-1) as { canvas_data?: { layers?: { id: string; fontSize: number }[] } }
     const savedField1 = saved.canvas_data?.layers?.find((l) => l.id === 'f1')
     expect(savedField1?.fontSize).toBe(48)
@@ -435,41 +439,43 @@ describe('EditorPage', () => {
     await userEvent.type(screen.getByText('Caption 1'), 'X')
     await userEvent.keyboard('{Enter}')
 
-    await userEvent.click(screen.getByRole('button', { name: 'Save to Gallery' }))
+    await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Save' }))
     const dialog = screen.getByRole('dialog')
     await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
 
-    await screen.findByRole('button', { name: 'Save' })
     const saved = savedRows.at(-1) as { canvas_data?: { layers?: { id: string; label: string }[] } }
     const savedField1 = saved.canvas_data?.layers?.find((l) => l.id === 'f1')
     expect(savedField1?.label).toBe('Caption 1X')
   })
 
-  it('does not show a Clear Canvas button when the canvas is blank', async () => {
+  it('the more-options menu is disabled when the canvas is blank', async () => {
     renderEditor()
     await screen.findByRole('button', { name: 'Two Buttons' }) // wait for sidebar to load
-    expect(screen.queryByRole('button', { name: 'Clear Canvas' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'More options' })).toBeDisabled()
   })
 
-  it('Clear Canvas asks for confirmation, and only clears once confirmed', async () => {
+  it('Delete in the more-options menu asks for confirmation, and only clears the canvas once confirmed', async () => {
     renderEditor()
     await userEvent.click(await screen.findByText('Two Buttons'))
     expect(screen.getByRole('img', { name: 'Two Buttons' })).toBeInTheDocument()
 
-    await userEvent.click(screen.getByRole('button', { name: 'Clear Canvas' }))
+    await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Delete' }))
     expect(screen.getByRole('dialog')).toBeInTheDocument()
     expect(screen.getByRole('img', { name: 'Two Buttons' })).toBeInTheDocument() // not cleared yet
 
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Clear Canvas' }))
     expect(screen.queryByRole('img', { name: 'Two Buttons' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Clear Canvas' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'More options' })).toBeDisabled()
   })
 
-  it('Clear Canvas cancel leaves the canvas untouched', async () => {
+  it('Delete in the more-options menu, cancel leaves the canvas untouched', async () => {
     renderEditor()
     await userEvent.click(await screen.findByText('Two Buttons'))
 
-    await userEvent.click(screen.getByRole('button', { name: 'Clear Canvas' }))
+    await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Delete' }))
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }))
 
     expect(screen.getByRole('img', { name: 'Two Buttons' })).toBeInTheDocument()

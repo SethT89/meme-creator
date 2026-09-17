@@ -8,6 +8,7 @@ import { TemplateSidebar } from './TemplateSidebar'
 import type { SelectedTemplate } from './TemplateSidebar'
 import { PropertyBar } from './PropertyBar'
 import { CanvasFab } from './CanvasFab'
+import { CanvasMoreMenu } from './CanvasMoreMenu'
 import { SaveDialog } from './SaveDialog'
 import { useCreation, useCreateCreation, useCreations, useUpdateCreation } from '../../lib/queries/creations'
 import { useTemplates, useTemplateFields } from '../../lib/queries/templates'
@@ -426,44 +427,6 @@ export function EditorPage() {
             genuinely useful info, so that still shows. */}
         {savedMeta && <h2 className="mb-3 text-lg font-semibold">{savedMeta.name}</h2>}
 
-        {/* Page-level actions live above the canvas, not overlapping the image —
-            only per-field editing controls (PropertyBar) appear on the canvas itself. */}
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-1.5">
-          {source !== null ? (
-            <Button size="sm" variant="outline" onClick={handleClearCanvasClick}>
-              Clear Canvas
-            </Button>
-          ) : (
-            <div />
-          )}
-          <div className="flex flex-wrap gap-1.5">
-            <Button size="sm" variant="outline" disabled>
-              Export
-            </Button>
-
-            {source !== null && !savedMeta && (
-              <Button size="sm" onClick={() => openDialog('save')}>
-                Save to Gallery
-              </Button>
-            )}
-            {savedMeta && (
-              <div className="flex">
-                <Button size="sm" className="rounded-r-none" onClick={handleQuickSave}>
-                  Save
-                </Button>
-                <Button
-                  size="sm"
-                  aria-label="▾"
-                  className="rounded-l-none border-l border-primary-foreground/30 px-2"
-                  onClick={() => openDialog('saveAs')}
-                >
-                  ▾
-                </Button>
-              </div>
-            )}
-          </div>
-        </div>
-
         <div ref={canvasScrollRef} className="flex min-h-0 flex-1 items-start justify-center overflow-auto">
           <div
             // sm:mr-12 sm:mb-4 reserve exactly the room CanvasFab needs
@@ -477,6 +440,28 @@ export function EditorPage() {
             // CanvasFab overlays the image instead of sitting outside it.
             className="relative inline-block rounded-lg bg-[repeating-conic-gradient(#00000010_0%_25%,transparent_0%_50%)] bg-[length:20px_20px] sm:mr-12 sm:mb-4"
           >
+            {/* Export + the Save/Save As/Delete menu float in the canvas's
+                own top-right corner (translucent so they stay legible over
+                artwork) rather than living in a toolbar row above it.
+                pointer-events-none on this wrapper (with pointer-events-auto
+                on each actual control) lets clicks in the gap between/around
+                the buttons fall through to whatever field is underneath —
+                without it, this box's own empty space blocked selecting a
+                caption positioned near the top-right corner (found live on
+                the Two Buttons template at mobile width). */}
+            <div className="pointer-events-none absolute right-2 top-2 z-10 flex items-center gap-1.5">
+              <Button size="sm" variant="outline" disabled className="pointer-events-auto bg-background/90 backdrop-blur-sm">
+                Export
+              </Button>
+              <CanvasMoreMenu
+                disabled={source === null}
+                canSaveAs={savedMeta !== null}
+                onSave={() => (savedMeta ? handleQuickSave() : openDialog('save'))}
+                onSaveAs={() => openDialog('saveAs')}
+                onClearCanvas={handleClearCanvasClick}
+              />
+            </div>
+
             {source === null && <div className="h-80 w-80" />}
             {source?.type === 'template' && (
               <img
