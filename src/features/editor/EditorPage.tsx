@@ -422,10 +422,36 @@ export function EditorPage() {
       <TemplateSidebar selectedTemplateId={source?.type === 'template' ? source.templateId : undefined} onSelectTemplate={handleSelectTemplate} />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* No "Editor" placeholder when nothing's saved yet — redundant
-            with the page itself. Once saved, the creation's own name is
-            genuinely useful info, so that still shows. */}
-        {savedMeta && <h2 className="mb-3 text-lg font-semibold">{savedMeta.name}</h2>}
+        {/* This row sits above the Canvas (the checkerboard artwork surface
+            below) but spans the full width of the Panel (the white floating
+            card this whole page renders inside — see AppShell) via this
+            column's own flex-1, so Export + the menu land at the Panel's
+            far right edge, not the Canvas's — those are two different right
+            edges whenever the Canvas is narrower than or centered within
+            the Panel's content column. Previously these floated absolutely
+            over the Canvas's own top-right corner, which on narrow
+            viewports sat directly on top of a template field positioned
+            near that same corner (needed a pointer-events workaround to
+            stop it from blocking clicks) — an in-flow row above the Canvas
+            avoids that class of bug entirely, not just this one instance. */}
+        <div className="mb-3 flex items-center justify-between gap-3">
+          {/* No "Editor" placeholder when nothing's saved yet — redundant
+              with the page itself. Once saved, the creation's own name is
+              genuinely useful info, so that still shows. */}
+          {savedMeta ? <h2 className="text-lg font-semibold">{savedMeta.name}</h2> : <div />}
+          <div className="flex items-center gap-1.5">
+            <Button size="sm" variant="outline" disabled>
+              Export
+            </Button>
+            <CanvasMoreMenu
+              disabled={source === null}
+              canSaveAs={savedMeta !== null}
+              onSave={() => (savedMeta ? handleQuickSave() : openDialog('save'))}
+              onSaveAs={() => openDialog('saveAs')}
+              onClearCanvas={handleClearCanvasClick}
+            />
+          </div>
+        </div>
 
         <div ref={canvasScrollRef} className="flex min-h-0 flex-1 items-start justify-center overflow-auto">
           <div
@@ -440,28 +466,6 @@ export function EditorPage() {
             // CanvasFab overlays the image instead of sitting outside it.
             className="relative inline-block rounded-lg bg-[repeating-conic-gradient(#00000010_0%_25%,transparent_0%_50%)] bg-[length:20px_20px] sm:mr-12 sm:mb-4"
           >
-            {/* Export + the Save/Save As/Delete menu float in the canvas's
-                own top-right corner (translucent so they stay legible over
-                artwork) rather than living in a toolbar row above it.
-                pointer-events-none on this wrapper (with pointer-events-auto
-                on each actual control) lets clicks in the gap between/around
-                the buttons fall through to whatever field is underneath —
-                without it, this box's own empty space blocked selecting a
-                caption positioned near the top-right corner (found live on
-                the Two Buttons template at mobile width). */}
-            <div className="pointer-events-none absolute right-2 top-2 z-10 flex items-center gap-1.5">
-              <Button size="sm" variant="outline" disabled className="pointer-events-auto bg-background/90 backdrop-blur-sm">
-                Export
-              </Button>
-              <CanvasMoreMenu
-                disabled={source === null}
-                canSaveAs={savedMeta !== null}
-                onSave={() => (savedMeta ? handleQuickSave() : openDialog('save'))}
-                onSaveAs={() => openDialog('saveAs')}
-                onClearCanvas={handleClearCanvasClick}
-              />
-            </div>
-
             {source === null && <div className="h-80 w-80" />}
             {source?.type === 'template' && (
               <img

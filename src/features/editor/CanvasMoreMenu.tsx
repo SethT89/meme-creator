@@ -32,7 +32,7 @@ export function CanvasMoreMenu({ disabled, canSaveAs, onSave, onSaveAs, onClearC
   }
 
   return (
-    <div className="pointer-events-auto relative" onClick={(e) => e.stopPropagation()}>
+    <div className="relative" onClick={(e) => e.stopPropagation()}>
       <button
         type="button"
         aria-label="More options"
