@@ -78,20 +78,48 @@ arguments) rather than pixel output.
 
 ## Delivery: desktop download vs. mobile share
 
-Feature-detected, not user-agent-sniffed: `navigator.canShare?.({ files:
-[...] })`.
+**Revised after live testing found the original approach wrong.** Feature
+detection alone (`navigator.canShare?.({ files: [...] })`) is not enough to
+decide desktop vs. mobile: confirmed live that desktop Safari on macOS also
+supports the Web Share API for files, so a pure capability check routed a
+real desktop export into the native macOS share sheet (AirDrop, Mail,
+Messages, etc.) instead of a direct Downloads-folder save — not what
+"Export" means on a desktop browser, regardless of what the browser
+happens to support.
 
-- **Supported (current iOS Safari, Android Chrome):** build a `File` from
-  the PNG Blob and call `navigator.share({ files: [file], title:
-  <filename> })`. Opens the native OS share sheet — "Save Image" goes
-  straight to Photos, avoiding a generic Files-app download. A user
-  cancelling the sheet rejects the promise with `AbortError` — treated as a
-  silent no-op (no error toast). Any other rejection shows an error toast.
-- **Not supported (virtually all desktop browsers today):** create a
+A first fix attempt used a `(pointer: coarse)` media query, which is also
+wrong for the same underlying reason: it answers "what input device is
+attached right now," not "what OS is this." A touchscreen Windows laptop
+reports `pointer: coarse` but is still a desktop machine (no Files-app
+confusion the way iOS has), and an iPad with a trackpad/Magic Keyboard
+reports `pointer: fine` (iPadOS deliberately makes its trackpad mimic
+mouse hover/click behavior) despite being exactly the device that needs
+the share sheet.
+
+**Actual approach:** `isMobileOrTabletDevice()` (`src/lib/exportDelivery.ts`)
+answers the real question — is this a mobile/tablet OS, not a desktop OS —
+via user-agent inspection, with one deliberate special case: iPadOS reports
+itself as desktop "Macintosh" by default (Apple's choice since iPadOS 13,
+for desktop-site compatibility), indistinguishable from a real Mac by UA
+string alone. The reliable tell: no Mac has ever shipped with a
+touchscreen, so a "Macintosh" UA that also reports touch points
+(`navigator.maxTouchPoints > 1`) is actually an iPad. The share path is
+only taken when **both** `isMobileOrTabletDevice()` and `canShareFile(file)`
+are true — capability alone is no longer sufficient.
+
+- **Mobile/tablet OS + share-capable (current iOS Safari, Android Chrome):**
+  build a `File` from the PNG Blob and call `navigator.share({ files:
+  [file], title: <filename> })`. Opens the native OS share sheet — "Save
+  Image" goes straight to Photos, avoiding a generic Files-app download. A
+  user cancelling the sheet rejects the promise with `AbortError` — treated
+  as a silent no-op (no error toast). Any other rejection shows an error
+  toast.
+- **Desktop OS, or a mobile/tablet OS without share support:** create a
   Blob URL, a temporary `<a download="filename.png" href={url}>`, click
   it, then revoke the URL on the next tick. Browsers already save this to
   the user's Downloads folder by default — no extra handling needed for
-  that part.
+  that part. This is now the unconditional desktop path, regardless of
+  whatever the browser itself supports.
 
 **Filename:** `<sanitized name>.png`, where name is `savedMeta?.name ??
 source.name` (falls back to the template's own name if nothing's been
