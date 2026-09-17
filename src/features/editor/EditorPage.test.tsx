@@ -95,8 +95,39 @@ vi.mock('../../lib/supabase', () => ({
         }),
       }
     },
+    storage: {
+      from: (bucket: string) => ({
+        upload: (path: string) => Promise.resolve({ data: { path }, error: null }),
+        getPublicUrl: (path: string) => ({ data: { publicUrl: `https://example.com/${bucket}/${path}` } }),
+      }),
+    },
   },
 }))
+
+// jsdom doesn't decode images or implement createObjectURL — stub both so
+// readImageDimensions (src/features/editor/EditorPage.tsx) resolves with a
+// fixed, known size instead of hanging forever.
+class MockImage {
+  onload: (() => void) | null = null
+  onerror: (() => void) | null = null
+  naturalWidth = 400
+  naturalHeight = 300
+  set src(_value: string) {
+    queueMicrotask(() => this.onload?.())
+  }
+}
+
+async function selectImageFile(filename = 'photo.png') {
+  const file = new File(['fake-bytes'], filename, { type: 'image/png' })
+  const input = document.querySelector('input[type="file"]') as HTMLInputElement
+  await userEvent.upload(input, file)
+}
+
+beforeEach(() => {
+  vi.stubGlobal('Image', MockImage)
+  URL.createObjectURL = vi.fn(() => 'blob:mock-url')
+  URL.revokeObjectURL = vi.fn()
+})
 
 function renderEditor(initialPath = '/') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -606,6 +637,153 @@ describe('EditorPage', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Export' }))
 
       expect(await screen.findByRole('status')).toHaveTextContent('failed')
+    })
+  })
+
+  describe('Upload Image', () => {
+    it('on the blank canvas, establishes a freeform canvas sized to the uploaded image, with the image itself as a layer', async () => {
+      renderEditor()
+      await screen.findByRole('button', { name: 'Two Buttons' }) // wait for sidebar to load
+
+      await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+      await selectImageFile('vacation.png')
+
+      const img = await screen.findByAltText('')
+      expect(img).toHaveAttribute('src', expect.stringContaining('creation-assets'))
+      // MockImage reports 400x300 — that's now the canvas's own size, and
+      // this first image fills it exactly (no canvas param passed to
+      // createImageLayer for the very first upload).
+      expect(img.parentElement).toHaveStyle({ width: '100%', height: '100%' })
+    })
+
+    it('adding a second image onto an existing freeform canvas appends a smaller, centered layer without resizing the canvas', async () => {
+      renderEditor()
+      await screen.findByRole('button', { name: 'Two Buttons' })
+      await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+      await selectImageFile('first.png')
+      await screen.findByAltText('')
+
+      await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+      await selectImageFile('second.png')
+
+      const images = await screen.findAllByAltText('')
+      expect(images).toHaveLength(2)
+      // The first image's layer box still fills the (unchanged) canvas...
+      expect(images[0].parentElement).toHaveStyle({ width: '100%', height: '100%' })
+      // ...the second is scaled down to fit within it (60% of 400x300 —
+      // width is the binding constraint here too).
+      expect(images[1].parentElement).not.toHaveStyle({ width: '100%', height: '100%' })
+    })
+
+    it('does nothing while a template is loaded', async () => {
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+
+      await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+
+      // No hidden-input click side effect worth asserting on directly, but
+      // the template's own image must still be the only image on the page —
+      // no freeform canvas got created underneath it.
+      expect(screen.getAllByRole('img')).toHaveLength(1)
+    })
+
+    it('Add Text now works once a freeform canvas exists (previously a hard no-op)', async () => {
+      renderEditor()
+      await screen.findByRole('button', { name: 'Two Buttons' })
+      await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+      await selectImageFile()
+      await screen.findByAltText('')
+
+      await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Add Text' }))
+
+      expect(document.querySelectorAll('[contenteditable="true"]')).toHaveLength(1)
+    })
+
+    it('Add Text still does nothing on a truly blank canvas (no image uploaded yet)', async () => {
+      renderEditor()
+      await screen.findByRole('button', { name: 'Two Buttons' })
+
+      await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Add Text' }))
+
+      expect(document.querySelectorAll('[contenteditable="true"]')).toHaveLength(0)
+    })
+
+    it('selecting an image layer shows Delete in the property bar but no Font/Size control', async () => {
+      renderEditor()
+      await screen.findByRole('button', { name: 'Two Buttons' })
+      await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+      const img = await selectImageFile().then(() => screen.findByAltText(''))
+
+      await userEvent.click(img)
+
+      expect(screen.getByText('Delete')).toBeInTheDocument()
+      expect(screen.queryByText(/size:/i)).not.toBeInTheDocument()
+    })
+
+    it('canvas resize handles appear for a freeform canvas only when nothing is selected, never for a template', async () => {
+      renderEditor()
+      await screen.findByRole('button', { name: 'Two Buttons' })
+      await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+      const img = await selectImageFile().then(() => screen.findByAltText(''))
+
+      const canvasHandleSelector = '.border-neutral-500.bg-white'
+      expect(document.querySelectorAll(canvasHandleSelector)).toHaveLength(3)
+
+      await userEvent.click(img) // select the image layer
+      expect(document.querySelectorAll(canvasHandleSelector)).toHaveLength(0)
+    })
+
+    it('dragging the bottom-right canvas handle grows the canvas, persisted through save', async () => {
+      renderEditor()
+      await screen.findByRole('button', { name: 'Two Buttons' })
+      await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+      await selectImageFile()
+      await screen.findByAltText('')
+
+      // jsdom never lays anything out for real (getBoundingClientRect is
+      // all-zero by default) — handleCanvasResizePointerMove divides the
+      // pointer delta by the canvas element's rendered width to convert
+      // screen pixels back to canvas pixels, so it needs a real width here.
+      // The freeform canvas container (imgRef) is the sibling <div> with the
+      // aspect-ratio inline style, right before the @container layers div —
+      // not an ancestor of the <img>, which lives inside that separate
+      // @container div as its own layer box.
+      const canvasEl = document.querySelector('[style*="aspect-ratio"]') as HTMLElement
+      vi.spyOn(canvasEl, 'getBoundingClientRect').mockReturnValue({
+        width: 400,
+        height: 300,
+        top: 0,
+        left: 0,
+        right: 400,
+        bottom: 300,
+        x: 0,
+        y: 0,
+        toJSON: () => {},
+      })
+
+      const brHandle = document.querySelectorAll('.border-neutral-500.bg-white')[2]
+      fireEvent.pointerDown(brHandle, { clientX: 0, clientY: 0 })
+      fireEvent.pointerMove(brHandle, { clientX: 100, clientY: 50 })
+      fireEvent.pointerUp(brHandle)
+
+      await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Save' }))
+      const dialog = screen.getByRole('dialog')
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+      const saved = savedRows.at(-1) as { canvas_data?: { canvasWidth?: number; canvasHeight?: number } }
+      expect(saved.canvas_data?.canvasWidth).toBe(500) // 400 + 100
+      expect(saved.canvas_data?.canvasHeight).toBe(350) // 300 + 50
     })
   })
 })
