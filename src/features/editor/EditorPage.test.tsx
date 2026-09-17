@@ -11,11 +11,12 @@ vi.mock('../../lib/exportCanvas', () => ({
 vi.mock('../../lib/exportDelivery', () => ({
   sanitizeFilename: (name: string) => name.replace(/[^a-zA-Z0-9]+/g, '-'),
   canShareFile: vi.fn(),
+  isMobileOrTabletDevice: vi.fn(),
   shareFile: vi.fn(),
   downloadBlob: vi.fn(),
 }))
 import { renderCreationToBlob } from '../../lib/exportCanvas'
-import { canShareFile, shareFile, downloadBlob } from '../../lib/exportDelivery'
+import { canShareFile, isMobileOrTabletDevice, shareFile, downloadBlob } from '../../lib/exportDelivery'
 
 const mockTemplate = {
   id: 'tmpl-1',
@@ -504,6 +505,7 @@ describe('EditorPage', () => {
     beforeEach(() => {
       vi.mocked(renderCreationToBlob).mockReset().mockResolvedValue(new Blob(['fake'], { type: 'image/png' }))
       vi.mocked(canShareFile).mockReset().mockReturnValue(false)
+      vi.mocked(isMobileOrTabletDevice).mockReset().mockReturnValue(false)
       vi.mocked(shareFile).mockReset().mockResolvedValue(undefined)
       vi.mocked(downloadBlob).mockReset()
     })
@@ -520,8 +522,26 @@ describe('EditorPage', () => {
       expect(await screen.findByRole('status')).toHaveTextContent('Downloaded')
     })
 
-    it('shares via the Web Share API when file-sharing is supported, showing a toast on success', async () => {
+    it('downloads directly on a desktop (mouse/trackpad) device even when the browser supports file-sharing', async () => {
+      // Regression test: modern desktop Safari supports navigator.share
+      // with files too (confirmed live — it pops the native macOS share
+      // sheet), which isn't what "Export" should do on desktop. Desktop
+      // must always download directly regardless of canShareFile.
       vi.mocked(canShareFile).mockReturnValue(true)
+      vi.mocked(isMobileOrTabletDevice).mockReturnValue(false)
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+
+      await userEvent.click(screen.getByRole('button', { name: 'Export' }))
+
+      expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), expect.stringMatching(/\.png$/))
+      expect(shareFile).not.toHaveBeenCalled()
+      expect(await screen.findByRole('status')).toHaveTextContent('Downloaded')
+    })
+
+    it('shares via the Web Share API on a touch-primary device that supports it, showing a toast on success', async () => {
+      vi.mocked(canShareFile).mockReturnValue(true)
+      vi.mocked(isMobileOrTabletDevice).mockReturnValue(true)
       renderEditor()
       await userEvent.click(await screen.findByText('Two Buttons'))
 
@@ -534,6 +554,7 @@ describe('EditorPage', () => {
 
     it('shows no toast when the user cancels the native share sheet', async () => {
       vi.mocked(canShareFile).mockReturnValue(true)
+      vi.mocked(isMobileOrTabletDevice).mockReturnValue(true)
       const abortError = new Error('cancelled')
       abortError.name = 'AbortError'
       vi.mocked(shareFile).mockRejectedValue(abortError)

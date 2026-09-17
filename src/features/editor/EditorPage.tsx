@@ -17,7 +17,7 @@ import { nextAvailableName } from '../../lib/creationNaming'
 import { layersFromCanvasData, applyDragDelta, applyResizeDelta, createBlankTextLayer } from '../../lib/layers'
 import type { Layer, ResizeSign } from '../../lib/layers'
 import { renderCreationToBlob } from '../../lib/exportCanvas'
-import { canShareFile, downloadBlob, sanitizeFilename, shareFile } from '../../lib/exportDelivery'
+import { canShareFile, downloadBlob, isMobileOrTabletDevice, sanitizeFilename, shareFile } from '../../lib/exportDelivery'
 import type { Json } from '../../types/database'
 
 type Source =
@@ -435,7 +435,7 @@ export function EditorPage() {
       const blob = await renderCreationToBlob(imgRef.current, templateRow, layers)
       const filename = `${sanitizeFilename(savedMeta?.name ?? source.name)}.png`
       const file = new File([blob], filename, { type: 'image/png' })
-      if (canShareFile(file)) {
+      if (isMobileOrTabletDevice() && canShareFile(file)) {
         try {
           await shareFile(file, filename)
           setToast({ message: 'Shared!', isError: false })
