@@ -63,7 +63,7 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
             key={t.id}
             type="button"
             onClick={() => pick(t)}
-            className={`flex w-full items-center gap-3 rounded-md p-2 text-left text-sm ${
+            className={`flex w-full items-center gap-3 rounded-md border border-border p-2 text-left text-sm shadow-sm ${
               selectedTemplateId === t.id ? 'bg-muted' : 'hover:bg-muted'
             }`}
           >
