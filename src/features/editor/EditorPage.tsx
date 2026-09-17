@@ -74,6 +74,13 @@ export function EditorPage() {
   const { data: fields = [] } = useTemplateFields(source?.type === 'template' ? source.templateId : undefined)
   const [layers, setLayers] = useState<Layer[]>([])
   const [layersSeededFor, setLayersSeededFor] = useState<string | undefined>(undefined)
+  // Snapshot of `layers` exactly as seeded (fresh template defaults, or a
+  // saved creation's own canvas_data) — compared against the live `layers`
+  // state to tell whether the user has actually changed anything since,
+  // so switching templates only needs to confirm when there's real work to
+  // lose. A ref, not state: it's only ever read at the moment of an action
+  // (switching templates), never rendered.
+  const baselineLayersRef = useRef<Layer[]>([])
   const imgRef = useRef<HTMLImageElement>(null)
   const canvasScrollRef = useRef<HTMLDivElement>(null)
   // Fixed-position (viewport pixel) anchor for the portaled PropertyBar —
@@ -216,7 +223,9 @@ export function EditorPage() {
     const seedKey = existingCreation?.id ?? 'new:' + source.templateId
     if (layersSeededFor !== seedKey) {
       setLayersSeededFor(seedKey)
-      setLayers(layersFromCanvasData(existingCreation?.canvas_data, fields))
+      const seeded = layersFromCanvasData(existingCreation?.canvas_data, fields)
+      setLayers(seeded)
+      baselineLayersRef.current = seeded
     }
   }
 
@@ -233,6 +242,7 @@ export function EditorPage() {
     setEditingLayerId(null)
     setLayers([])
     setLayersSeededFor(undefined)
+    baselineLayersRef.current = []
     if (creationId) navigate('/')
   }
 
@@ -243,11 +253,22 @@ export function EditorPage() {
     setEditingLayerId(null)
     setLayers([])
     setLayersSeededFor(undefined)
+    baselineLayersRef.current = []
     if (creationId) navigate('/')
   }
 
+  // Only confirm when there's actually something to lose — compares the
+  // live layers against the snapshot taken when they were seeded, rather
+  // than just checking whether *any* template is loaded. Lets someone
+  // quickly flip through templates to see what they look like without a
+  // dialog in the way every single time, and only interrupts once they've
+  // genuinely started customizing one.
+  function hasUnsavedLayerEdits(): boolean {
+    return JSON.stringify(layers) !== JSON.stringify(baselineLayersRef.current)
+  }
+
   function handleSelectTemplate(template: SelectedTemplate) {
-    if (source !== null) {
+    if (source !== null && hasUnsavedLayerEdits()) {
       setPendingTemplate(template)
     } else {
       loadTemplate(template)

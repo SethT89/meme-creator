@@ -501,6 +501,37 @@ describe('EditorPage', () => {
     expect(screen.getByRole('img', { name: 'Two Buttons' })).toBeInTheDocument()
   })
 
+  it('re-picking a template with no edits made switches immediately, with no confirmation', async () => {
+    renderEditor()
+    await userEvent.click(await screen.findByText('Two Buttons'))
+
+    // Nothing changed since it loaded (no typing, no drag/resize) — picking
+    // it again should just reload it, not ask to discard anything.
+    await userEvent.click(screen.getByText('Two Buttons'))
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Two Buttons' })).toBeInTheDocument()
+  })
+
+  it('re-picking a template after making an edit asks for confirmation first', async () => {
+    renderEditor()
+    await userEvent.click(await screen.findByText('Two Buttons'))
+    await userEvent.dblClick(screen.getByText('Caption 1'))
+    await userEvent.type(screen.getByText('Caption 1'), 'X')
+    await userEvent.keyboard('{Enter}')
+
+    await userEvent.click(screen.getByText('Two Buttons'))
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByText(/Caption 1X/)).toBeInTheDocument() // not discarded yet
+
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Switch Template' }))
+
+    // Reloaded fresh — the edit is gone, back to the template's own default label.
+    expect(screen.queryByText(/Caption 1X/)).not.toBeInTheDocument()
+    expect(screen.getByText('Caption 1')).toBeInTheDocument()
+  })
+
   describe('Export', () => {
     beforeEach(() => {
       vi.mocked(renderCreationToBlob).mockReset().mockResolvedValue(new Blob(['fake'], { type: 'image/png' }))
