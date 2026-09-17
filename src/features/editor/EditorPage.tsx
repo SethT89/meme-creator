@@ -773,10 +773,33 @@ export function EditorPage() {
               />
             )}
             {source?.type === 'freeform' && activeCanvas && (
+              // A plain <div> isn't a "replaced element" the way <img> is, so
+              // it has no built-in algorithm for deriving its width from a
+              // max-height + intrinsic ratio the way the template <img>
+              // above can — that combination silently collapses this div to
+              // its CSS floor (sm:min-h-[240px]) regardless of the real
+              // aspect ratio or viewport size, since w-auto/max-w-full both
+              // resolve against this box's own indeterminate (shrink-wrap)
+              // parent, the same circular-sizing trap the blank placeholder
+              // div below (source === null) already works around. Fixed the
+              // same way: an explicit height (not max-height) makes this
+              // box's own height definite directly, so aspect-ratio can then
+              // derive width from it without any circularity — and the
+              // max-width needs the same explicit calc() as that placeholder
+              // for the same reason (a percentage one hits the same
+              // indeterminate-parent problem).
               <div
                 ref={imgRef as RefObject<HTMLDivElement>}
                 style={{ aspectRatio: `${activeCanvas.width} / ${activeCanvas.height}` }}
-                className="block max-h-[65vh] w-auto max-w-full bg-white sm:max-h-[calc(100vh-19rem)] sm:min-h-[240px]"
+                // No background color here — left transparent so the outer
+                // wrapper's own checkerboard pattern (the app's established
+                // "empty" indicator, already used for the no-source blank
+                // canvas) shows through in any canvas space not covered by
+                // an image layer. Matters most right after resizing the
+                // canvas larger than its layers: that revealed space needs
+                // to read as "empty canvas," not blend invisibly into the
+                // page's own white background the way opaque white would.
+                className="block h-[65vh] max-w-[calc(100vw-14rem)] sm:h-[calc(100vh-19rem)] sm:max-w-[calc(100vw-24rem)] sm:min-h-[240px]"
               />
             )}
             {source?.type === 'freeform' && !activeCanvas && (
