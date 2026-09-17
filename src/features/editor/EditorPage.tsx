@@ -103,6 +103,30 @@ export function EditorPage() {
     return () => document.removeEventListener('click', handleDocumentClick)
   }, [])
 
+  // Delete/Backspace deletes the selected field — but only while it's
+  // merely selected, not while actively editing its text (where those keys
+  // are ordinary character editing, handled by the browser's native
+  // contentEditable behavior + handleLabelKeyDown below). Only registered
+  // while something is selected and not being edited, so it can't fire from
+  // some other, unrelated keypress elsewhere on the page.
+  useEffect(() => {
+    if (!selectedFieldId || editingLayerId === selectedFieldId) return
+    const fieldId = selectedFieldId
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== 'Delete' && e.key !== 'Backspace') return
+      // Extra guard: don't delete the field if some other input/textarea/
+      // contentEditable on the page happens to have focus (e.g. the
+      // sidebar search box) — selecting a field doesn't itself move DOM
+      // focus, so this only matters if focus already landed somewhere else
+      // while the field stayed selected.
+      const active = document.activeElement as HTMLElement | null
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return
+      handleDeleteLayer(fieldId)
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [selectedFieldId, editingLayerId])
+
   // PropertyBar is portaled to document.body (see its render below, inside
   // the layers map) so it can float above every other on-page element,
   // including ones outside the canvas's own DOM subtree — nesting it inside

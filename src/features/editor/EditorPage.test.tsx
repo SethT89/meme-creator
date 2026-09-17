@@ -210,6 +210,54 @@ describe('EditorPage', () => {
     expect(screen.getByText(/size: 22px/i)).toBeInTheDocument() // property bar itself is still showing
   })
 
+  it('pressing Delete while a field is selected (not editing) deletes it', async () => {
+    renderEditor()
+    await userEvent.click(await screen.findByText('Two Buttons'))
+    await userEvent.click(screen.getByText('Caption 1'))
+    expect(screen.getByText(/size: 22px/i)).toBeInTheDocument()
+
+    await userEvent.keyboard('{Delete}')
+
+    expect(screen.queryByText('Caption 1')).not.toBeInTheDocument()
+    expect(screen.queryByText(/size: 22px/i)).not.toBeInTheDocument() // selection cleared too
+    expect(screen.getByText('Caption 2')).toBeInTheDocument() // other fields untouched
+  })
+
+  it('pressing Backspace while a field is selected (not editing) also deletes it', async () => {
+    renderEditor()
+    await userEvent.click(await screen.findByText('Two Buttons'))
+    await userEvent.click(screen.getByText('Caption 1'))
+
+    await userEvent.keyboard('{Backspace}')
+
+    expect(screen.queryByText('Caption 1')).not.toBeInTheDocument()
+  })
+
+  it('pressing Delete while actively editing a field does not delete it', async () => {
+    renderEditor()
+    await userEvent.click(await screen.findByText('Two Buttons'))
+    await userEvent.dblClick(screen.getByText('Caption 1'))
+    expect(document.querySelectorAll('[contenteditable="true"]')).toHaveLength(1)
+
+    await userEvent.keyboard('{Delete}')
+
+    // Still there — entering edit mode selects all the existing text, so
+    // Delete here is ordinary text editing (consuming that selection),
+    // same as it would be in any text field. Checking the box still exists
+    // rather than its exact text, since consuming the selection is expected
+    // to clear it.
+    expect(document.querySelectorAll('[contenteditable="true"]')).toHaveLength(1)
+  })
+
+  it('pressing Delete with nothing selected does nothing', async () => {
+    renderEditor()
+    await userEvent.click(await screen.findByText('Two Buttons'))
+
+    await userEvent.keyboard('{Delete}')
+
+    expect(screen.getByText('Caption 1')).toBeInTheDocument()
+  })
+
   it('saves a new template creation with its real template_id, then shows the Save/Save As split', async () => {
     renderEditor()
     await userEvent.click(await screen.findByText('Two Buttons'))
