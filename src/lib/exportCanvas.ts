@@ -9,14 +9,19 @@ interface TemplateSize {
   image_height: number
 }
 
+// Narrower than Pick<CanvasRenderingContext2D, 'measureText'> on purpose —
+// that would force a test's fake context to return a full TextMetrics
+// object (a dozen properties this function never reads) just to satisfy
+// the type checker. A real CanvasRenderingContext2D still structurally
+// satisfies this, since it returns more than enough.
+interface TextMeasurer {
+  measureText(text: string): { width: number }
+}
+
 // Canvas has no built-in word-wrap — greedily fills each line up to
 // maxWidth, approximating (not guaranteeing pixel-identical to) the
 // browser's own text wrapping in the live DOM editor.
-export function wrapTextLines(
-  ctx: Pick<CanvasRenderingContext2D, 'measureText'>,
-  text: string,
-  maxWidth: number,
-): string[] {
+export function wrapTextLines(ctx: TextMeasurer, text: string, maxWidth: number): string[] {
   const words = text.split(/\s+/).filter(Boolean)
   if (words.length === 0) return []
 

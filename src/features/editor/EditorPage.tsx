@@ -2,6 +2,7 @@ import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useParams } from 'react-router-dom'
+import { Loader2 } from 'lucide-react'
 import { Button } from '../../components/ui/button'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { TemplateSidebar } from './TemplateSidebar'
@@ -15,6 +16,8 @@ import { useTemplates, useTemplateFields } from '../../lib/queries/templates'
 import { nextAvailableName } from '../../lib/creationNaming'
 import { layersFromCanvasData, applyDragDelta, applyResizeDelta, createBlankTextLayer } from '../../lib/layers'
 import type { Layer, ResizeSign } from '../../lib/layers'
+import { renderCreationToBlob } from '../../lib/exportCanvas'
+import { canShareFile, downloadBlob, sanitizeFilename, shareFile } from '../../lib/exportDelivery'
 import type { Json } from '../../types/database'
 
 type Source =
@@ -65,6 +68,8 @@ export function EditorPage() {
   const [dialogKey, setDialogKey] = useState(0)
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
   const [pendingTemplate, setPendingTemplate] = useState<SelectedTemplate | null>(null)
+  const [exporting, setExporting] = useState(false)
+  const [toast, setToast] = useState<{ message: string; isError: boolean } | null>(null)
 
   const { data: fields = [] } = useTemplateFields(source?.type === 'template' ? source.templateId : undefined)
   const [layers, setLayers] = useState<Layer[]>([])
@@ -127,6 +132,12 @@ export function EditorPage() {
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [selectedFieldId, editingLayerId])
+
+  useEffect(() => {
+    if (!toast) return
+    const timer = setTimeout(() => setToast(null), 3000)
+    return () => clearTimeout(timer)
+  }, [toast])
 
   // PropertyBar is portaled to document.body (see its render below, inside
   // the layers map) so it can float above every other on-page element,
@@ -417,6 +428,35 @@ export function EditorPage() {
     updateCreation.mutate({ id: savedMeta.id, name: savedMeta.name, tags: savedMeta.tags, canvasData: { layers } as unknown as Json })
   }
 
+  async function handleExport() {
+    if (!source || source.type !== 'template' || !templateRow || !imgRef.current) return
+    setExporting(true)
+    try {
+      const blob = await renderCreationToBlob(imgRef.current, templateRow, layers)
+      const filename = `${sanitizeFilename(savedMeta?.name ?? source.name)}.png`
+      const file = new File([blob], filename, { type: 'image/png' })
+      if (canShareFile(file)) {
+        try {
+          await shareFile(file, filename)
+          setToast({ message: 'Shared!', isError: false })
+        } catch (err) {
+          // A user cancelling the native share sheet rejects with
+          // AbortError — that's not a failure worth surfacing.
+          if ((err as Error)?.name !== 'AbortError') {
+            setToast({ message: 'Export failed — try again.', isError: true })
+          }
+        }
+      } else {
+        downloadBlob(blob, filename)
+        setToast({ message: 'Downloaded!', isError: false })
+      }
+    } catch {
+      setToast({ message: 'Export failed — try again.', isError: true })
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <div className="flex h-full gap-6">
       <TemplateSidebar selectedTemplateId={source?.type === 'template' ? source.templateId : undefined} onSelectTemplate={handleSelectTemplate} />
@@ -440,7 +480,13 @@ export function EditorPage() {
               genuinely useful info, so that still shows. */}
           {savedMeta ? <h2 className="text-lg font-semibold">{savedMeta.name}</h2> : <div />}
           <div className="flex items-center gap-1.5">
-            <Button size="sm" variant="outline" disabled>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={source?.type !== 'template' || !templateRow || exporting}
+              onClick={handleExport}
+            >
+              {exporting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
               Export
             </Button>
             <CanvasMoreMenu
@@ -496,6 +542,10 @@ export function EditorPage() {
                 ref={imgRef}
                 src={source.blankImageUrl}
                 alt={source.name}
+                // Needed for canvas.toBlob() in renderCreationToBlob to not
+                // throw on a "tainted" canvas — the template-images bucket
+                // is public with permissive CORS, so this alone is enough.
+                crossOrigin="anonymous"
                 // No explicit width/height attributes — sized entirely via
                 // CSS below. An explicit aspect-ratio (once templateRow is
                 // known) keeps sm:min-h-[240px] below from distorting the
@@ -733,6 +783,17 @@ export function EditorPage() {
         onConfirm={confirmSwitchTemplate}
         onCancel={() => setPendingTemplate(null)}
       />
+
+      {toast && (
+        <div
+          role="status"
+          className={`fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full px-4 py-2 text-sm text-white shadow-lg ${
+            toast.isError ? 'bg-red-600' : 'bg-neutral-900'
+          }`}
+        >
+          {toast.message}
+        </div>
+      )}
     </div>
   )
 }

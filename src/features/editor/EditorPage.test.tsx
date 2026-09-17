@@ -1,9 +1,21 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { EditorPage } from './EditorPage'
+
+vi.mock('../../lib/exportCanvas', () => ({
+  renderCreationToBlob: vi.fn(),
+}))
+vi.mock('../../lib/exportDelivery', () => ({
+  sanitizeFilename: (name: string) => name.replace(/[^a-zA-Z0-9]+/g, '-'),
+  canShareFile: vi.fn(),
+  shareFile: vi.fn(),
+  downloadBlob: vi.fn(),
+}))
+import { renderCreationToBlob } from '../../lib/exportCanvas'
+import { canShareFile, shareFile, downloadBlob } from '../../lib/exportDelivery'
 
 const mockTemplate = {
   id: 'tmpl-1',
@@ -111,7 +123,7 @@ describe('EditorPage', () => {
     expect(screen.getByText('Caption 1')).toBeInTheDocument()
     expect(screen.getByText('Caption 2')).toBeInTheDocument()
     expect(screen.getByText('Caption 3')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Export' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Export' })).toBeEnabled()
     expect(screen.queryByRole('button', { name: '+ Text' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '+ Sticker' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open add menu' })).toBeInTheDocument()
@@ -486,5 +498,62 @@ describe('EditorPage', () => {
     await userEvent.click(await screen.findByText('Two Buttons'))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     expect(screen.getByRole('img', { name: 'Two Buttons' })).toBeInTheDocument()
+  })
+
+  describe('Export', () => {
+    beforeEach(() => {
+      vi.mocked(renderCreationToBlob).mockReset().mockResolvedValue(new Blob(['fake'], { type: 'image/png' }))
+      vi.mocked(canShareFile).mockReset().mockReturnValue(false)
+      vi.mocked(shareFile).mockReset().mockResolvedValue(undefined)
+      vi.mocked(downloadBlob).mockReset()
+    })
+
+    it('downloads the rendered PNG and shows a toast when file-sharing is unsupported', async () => {
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+
+      await userEvent.click(screen.getByRole('button', { name: 'Export' }))
+
+      expect(renderCreationToBlob).toHaveBeenCalled()
+      expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), expect.stringMatching(/\.png$/))
+      expect(shareFile).not.toHaveBeenCalled()
+      expect(await screen.findByRole('status')).toHaveTextContent('Downloaded')
+    })
+
+    it('shares via the Web Share API when file-sharing is supported, showing a toast on success', async () => {
+      vi.mocked(canShareFile).mockReturnValue(true)
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+
+      await userEvent.click(screen.getByRole('button', { name: 'Export' }))
+
+      expect(shareFile).toHaveBeenCalledWith(expect.any(File), expect.stringMatching(/\.png$/))
+      expect(downloadBlob).not.toHaveBeenCalled()
+      expect(await screen.findByRole('status')).toHaveTextContent('Shared')
+    })
+
+    it('shows no toast when the user cancels the native share sheet', async () => {
+      vi.mocked(canShareFile).mockReturnValue(true)
+      const abortError = new Error('cancelled')
+      abortError.name = 'AbortError'
+      vi.mocked(shareFile).mockRejectedValue(abortError)
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+
+      await userEvent.click(screen.getByRole('button', { name: 'Export' }))
+
+      await Promise.resolve() // let the rejected promise settle
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    })
+
+    it('shows an error toast when rendering fails', async () => {
+      vi.mocked(renderCreationToBlob).mockRejectedValue(new Error('boom'))
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+
+      await userEvent.click(screen.getByRole('button', { name: 'Export' }))
+
+      expect(await screen.findByRole('status')).toHaveTextContent('failed')
+    })
   })
 })
