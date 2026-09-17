@@ -7,12 +7,17 @@ interface CanvasMoreMenuProps {
   // "Save As" only makes sense once there's an existing saved creation to
   // branch a copy from.
   canSaveAs: boolean
+  // Only a freeform canvas that already has real dimensions (at least one
+  // image uploaded) can be resized — hidden entirely otherwise, same
+  // pattern as canSaveAs above.
+  canAdjustCanvas: boolean
   onSave: () => void
   onSaveAs: () => void
+  onAdjustCanvas: () => void
   onClearCanvas: () => void
 }
 
-export function CanvasMoreMenu({ disabled, canSaveAs, onSave, onSaveAs, onClearCanvas }: CanvasMoreMenuProps) {
+export function CanvasMoreMenu({ disabled, canSaveAs, canAdjustCanvas, onSave, onSaveAs, onAdjustCanvas, onClearCanvas }: CanvasMoreMenuProps) {
   const [open, setOpen] = useState(false)
 
   // Closes on a click anywhere outside — the same document-level pattern
@@ -63,6 +68,16 @@ export function CanvasMoreMenu({ disabled, canSaveAs, onSave, onSaveAs, onClearC
               className="block w-full px-3 py-1.5 text-left text-sm hover:bg-muted"
             >
               Save As
+            </button>
+          )}
+          {canAdjustCanvas && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => runAndClose(onAdjustCanvas)}
+              className="block w-full px-3 py-1.5 text-left text-sm hover:bg-muted"
+            >
+              Adjust Canvas
             </button>
           )}
           <button

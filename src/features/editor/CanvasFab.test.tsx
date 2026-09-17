@@ -88,4 +88,20 @@ describe('CanvasFab', () => {
     await userEvent.click(document.body)
     expect(screen.queryByRole('button', { name: 'Add Text' })).not.toBeInTheDocument()
   })
+
+  it('while uploadingImage is true, the main toggle shows a busy state and is disabled', () => {
+    render(<CanvasFab uploadingImage />)
+
+    const toggle = screen.getByRole('button', { name: 'Uploading image…' })
+    expect(toggle).toBeDisabled()
+    expect(screen.queryByRole('button', { name: 'Open add menu' })).not.toBeInTheDocument()
+  })
+
+  it('goes back to the normal Open add menu state once uploadingImage becomes false', () => {
+    const { rerender } = render(<CanvasFab uploadingImage />)
+    rerender(<CanvasFab uploadingImage={false} />)
+
+    const toggle = screen.getByRole('button', { name: 'Open add menu' })
+    expect(toggle).toBeEnabled()
+  })
 })

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Plus, X, Type, Image as ImageIcon, Sticker, Smile } from 'lucide-react'
+import { Plus, X, Type, Image as ImageIcon, Sticker, Smile, Loader2 } from 'lucide-react'
 
 // Top-to-bottom stacking order when the menu is open — closest to the main
 // FAB (rendered last, at the bottom of the stack) is the most likely first
@@ -17,9 +17,14 @@ interface CanvasFabProps {
   // one has somewhere real to go.
   onAddText?: () => void
   onAddImage?: () => void
+  // True while a picked file is uploading — the main toggle button shows a
+  // spinner and disables itself for the duration, since there's no other
+  // visible feedback between picking a file and it appearing on the canvas
+  // (the menu itself has already closed by then; see handleActionClick).
+  uploadingImage?: boolean
 }
 
-export function CanvasFab({ onAddText, onAddImage }: CanvasFabProps) {
+export function CanvasFab({ onAddText, onAddImage, uploadingImage = false }: CanvasFabProps) {
   const [open, setOpen] = useState(false)
 
   function handleActionClick(key: (typeof FAB_ACTIONS)[number]['key']) {
@@ -74,11 +79,18 @@ export function CanvasFab({ onAddText, onAddImage }: CanvasFabProps) {
 
       <button
         type="button"
-        aria-label={open ? 'Close add menu' : 'Open add menu'}
+        aria-label={uploadingImage ? 'Uploading image…' : open ? 'Close add menu' : 'Open add menu'}
+        disabled={uploadingImage}
         onClick={() => setOpen((prev) => !prev)}
-        className="flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:opacity-90 active:opacity-80"
+        className="flex h-14 w-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:opacity-90 active:opacity-80 disabled:pointer-events-none disabled:opacity-70"
       >
-        {open ? <X className="h-6 w-6" /> : <Plus className="h-6 w-6" />}
+        {uploadingImage ? (
+          <Loader2 className="h-6 w-6 animate-spin" aria-hidden="true" />
+        ) : open ? (
+          <X className="h-6 w-6" />
+        ) : (
+          <Plus className="h-6 w-6" />
+        )}
       </button>
     </div>
   )

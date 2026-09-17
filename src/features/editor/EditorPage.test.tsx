@@ -728,7 +728,7 @@ describe('EditorPage', () => {
       expect(screen.queryByText(/size:/i)).not.toBeInTheDocument()
     })
 
-    it('canvas resize handles appear for a freeform canvas only when nothing is selected, never for a template', async () => {
+    it('canvas resize handles are hidden by default after uploading, and only appear once Adjust Canvas is chosen from the menu', async () => {
       renderEditor()
       await screen.findByRole('button', { name: 'Two Buttons' })
       await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
@@ -736,10 +736,22 @@ describe('EditorPage', () => {
       const img = await selectImageFile().then(() => screen.findByAltText(''))
 
       const canvasHandleSelector = '.border-neutral-500.bg-white'
+      expect(document.querySelectorAll(canvasHandleSelector)).toHaveLength(0)
+
+      await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Adjust Canvas' }))
       expect(document.querySelectorAll(canvasHandleSelector)).toHaveLength(3)
 
-      await userEvent.click(img) // select the image layer
+      await userEvent.click(img) // selecting a layer exits adjust-canvas mode
       expect(document.querySelectorAll(canvasHandleSelector)).toHaveLength(0)
+    })
+
+    it('the More Options menu has no Adjust Canvas item for a template or a blank canvas', async () => {
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+
+      await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+      expect(screen.queryByRole('menuitem', { name: 'Adjust Canvas' })).not.toBeInTheDocument()
     })
 
     it('dragging the bottom-right canvas handle grows the canvas, persisted through save', async () => {
@@ -749,6 +761,8 @@ describe('EditorPage', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
       await selectImageFile()
       await screen.findByAltText('')
+      await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Adjust Canvas' }))
 
       // jsdom never lays anything out for real (getBoundingClientRect is
       // all-zero by default) — handleCanvasResizePointerMove divides the

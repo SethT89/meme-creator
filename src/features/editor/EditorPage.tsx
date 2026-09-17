@@ -93,6 +93,11 @@ export function EditorPage() {
   const [savedMeta, setSavedMeta] = useState<SavedMeta>(null)
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null)
   const [editingLayerId, setEditingLayerId] = useState<string | null>(null)
+  // Explicit mode, entered via the More Options menu's "Adjust Canvas" item
+  // — canvas-resize handles only show while this is true, rather than
+  // whenever nothing else happens to be selected, so they don't appear
+  // unannounced immediately after every upload.
+  const [adjustingCanvas, setAdjustingCanvas] = useState(false)
   const editStartLabel = useRef('')
   // Set (alongside editStartLabel) at every call site that starts a new edit
   // session, consumed by the contentEditable ref callback below. Needed
@@ -175,6 +180,7 @@ export function EditorPage() {
   useEffect(() => {
     function handleDocumentClick() {
       setSelectedFieldId(null)
+      setAdjustingCanvas(false)
     }
     document.addEventListener('click', handleDocumentClick)
     return () => document.removeEventListener('click', handleDocumentClick)
@@ -310,6 +316,7 @@ export function EditorPage() {
     setSavedMeta(null)
     setSelectedFieldId(null)
     setEditingLayerId(null)
+    setAdjustingCanvas(false)
     setLayers([])
     setLayersSeededFor(undefined)
     baselineLayersRef.current = []
@@ -321,6 +328,7 @@ export function EditorPage() {
     setSavedMeta(null)
     setSelectedFieldId(null)
     setEditingLayerId(null)
+    setAdjustingCanvas(false)
     setLayers([])
     setLayersSeededFor(undefined)
     baselineLayersRef.current = []
@@ -349,6 +357,16 @@ export function EditorPage() {
     setClearConfirmOpen(true)
   }
 
+  // CanvasMoreMenu's "Adjust Canvas" item. Deselects any layer/edit session
+  // on the way in so the two modes never overlap — a selected layer's own
+  // resize handles and the canvas's own would otherwise both be candidates
+  // for what a drag on the canvas edge means.
+  function handleToggleAdjustCanvas() {
+    setAdjustingCanvas((prev) => !prev)
+    setSelectedFieldId(null)
+    setEditingLayerId(null)
+  }
+
   function confirmClearCanvas() {
     clearCanvas()
     setClearConfirmOpen(false)
@@ -372,6 +390,7 @@ export function EditorPage() {
     // arm a drag, and don't steal focus away from the contentEditable box.
     if (editingLayerId === layer.id) return
     setSelectedFieldId(layer.id)
+    setAdjustingCanvas(false)
     dragState.current = { id: layer.id, startX: e.clientX, startY: e.clientY, layerStartX: layer.x, layerStartY: layer.y, moved: false }
     // Optional chaining: jsdom (used by the test suite) doesn't implement
     // setPointerCapture at all — calling it directly would throw and break
@@ -448,6 +467,7 @@ export function EditorPage() {
         setSavedMeta(null)
         setSelectedFieldId(null)
         setEditingLayerId(null)
+        setAdjustingCanvas(false)
         setLayers([newLayer])
         setLayersSeededFor(undefined)
         // The freshly-created canvas's starting point already includes this
@@ -687,8 +707,10 @@ export function EditorPage() {
             <CanvasMoreMenu
               disabled={source === null}
               canSaveAs={savedMeta !== null}
+              canAdjustCanvas={source?.type === 'freeform' && activeCanvas !== undefined}
               onSave={() => (savedMeta ? handleQuickSave() : openDialog('save'))}
               onSaveAs={() => openDialog('saveAs')}
+              onAdjustCanvas={handleToggleAdjustCanvas}
               onClearCanvas={handleClearCanvasClick}
             />
           </div>
@@ -991,7 +1013,7 @@ export function EditorPage() {
                 })}
               </div>
             )}
-            {source?.type === 'freeform' && activeCanvas && selectedFieldId === null && (
+            {source?.type === 'freeform' && activeCanvas && adjustingCanvas && (
               <div className="absolute inset-0">
                 {CANVAS_RESIZE_HANDLES.map((handle) => (
                   <div
@@ -1010,7 +1032,7 @@ export function EditorPage() {
                 a template is loaded — it's the entry point for starting from
                 scratch (upload an image, add a sticker/text) as well as for
                 adding to a loaded template. */}
-            <CanvasFab onAddText={handleAddText} onAddImage={handleAddImage} />
+            <CanvasFab onAddText={handleAddText} onAddImage={handleAddImage} uploadingImage={uploadingImage} />
             <input
               ref={fileInputRef}
               type="file"
