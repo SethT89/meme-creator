@@ -92,6 +92,37 @@ export function createBlankTextLayer(imageWidth: number, imageHeight: number): T
   }
 }
 
+// Upload Image's layer factory. With no canvas yet (the very first image on
+// a blank creation — this call is what establishes canvasWidth/canvasHeight
+// a moment later), the image lands at the origin at its own native size, so
+// it becomes the canvas's full extent. Landing on an existing canvas instead
+// scales the image down to fit within 60% of the canvas's smaller dimension
+// (never up — a small image stays native size) and centers it, the same
+// "don't drop in bigger than the surface it's landing on" idea
+// createBlankTextLayer already applies to text boxes.
+export function createImageLayer(
+  src: string,
+  naturalWidth: number,
+  naturalHeight: number,
+  canvas?: { width: number; height: number },
+): ImageLayer {
+  if (!canvas) {
+    return { type: 'image', id: crypto.randomUUID(), src, x: 0, y: 0, width: naturalWidth, height: naturalHeight }
+  }
+  const scale = Math.min(1, (canvas.width * 0.6) / naturalWidth, (canvas.height * 0.6) / naturalHeight)
+  const width = naturalWidth * scale
+  const height = naturalHeight * scale
+  return {
+    type: 'image',
+    id: crypto.randomUUID(),
+    src,
+    x: (canvas.width - width) / 2,
+    y: (canvas.height - height) / 2,
+    width,
+    height,
+  }
+}
+
 export function layersFromCanvasData(canvasData: unknown, fallbackFields: TemplateFieldRow[]): Layer[] {
   const layers = (canvasData as { layers?: Layer[] } | null | undefined)?.layers
   if (layers && layers.length > 0) {
@@ -119,6 +150,11 @@ export function applyDragDelta(
 }
 
 export const MIN_LAYER_SIZE = 20
+
+// Floor for a freeform canvas's own width/height when the user drags a
+// canvas-resize handle — mirrors MIN_LAYER_SIZE's role for an ordinary
+// layer, just for the canvas itself.
+export const MIN_CANVAS_SIZE = 100
 
 // Which edge(s) a resize handle controls. +1 = right/bottom edge (growing
 // moves that edge further out, opposite edge fixed). -1 = left/top edge

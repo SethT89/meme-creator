@@ -10,6 +10,7 @@ import {
   applyDragDelta,
   applyResizeDelta,
   createBlankTextLayer,
+  createImageLayer,
   MIN_LAYER_SIZE,
 } from './layers'
 import type { Layer } from './layers'
@@ -83,6 +84,37 @@ describe('createBlankTextLayer', () => {
   it('gives each call a unique id', () => {
     const a = createBlankTextLayer(600, 908)
     const b = createBlankTextLayer(600, 908)
+    expect(a.id).not.toBe(b.id)
+  })
+})
+
+describe('createImageLayer', () => {
+  it('with no canvas given, places the image at the origin at its native size — it is about to define the canvas', () => {
+    const layer = createImageLayer('https://example.com/a.png', 800, 600)
+    expect(layer).toEqual({ type: 'image', id: layer.id, src: 'https://example.com/a.png', x: 0, y: 0, width: 800, height: 600 })
+  })
+
+  it('with a canvas given, scales the image down to fit within 60% of the canvas and centers it', () => {
+    // Canvas 1000x1000, image 800x600 (wider than tall) — width is the
+    // binding constraint: 800 * scale = 600 (60% of 1000) => scale = 0.75
+    const layer = createImageLayer('https://example.com/a.png', 800, 600, { width: 1000, height: 1000 })
+    expect(layer.width).toBe(600)
+    expect(layer.height).toBe(450)
+    expect(layer.x).toBe((1000 - 600) / 2)
+    expect(layer.y).toBe((1000 - 450) / 2)
+  })
+
+  it('never scales a smaller image up to fill the 60% target', () => {
+    // Image already well under 60% of a huge canvas — scale factor would be
+    // >1, which must clamp to 1 (native size), not enlarge it.
+    const layer = createImageLayer('https://example.com/a.png', 100, 50, { width: 2000, height: 2000 })
+    expect(layer.width).toBe(100)
+    expect(layer.height).toBe(50)
+  })
+
+  it('gives each call a unique id', () => {
+    const a = createImageLayer('https://example.com/a.png', 100, 100)
+    const b = createImageLayer('https://example.com/a.png', 100, 100)
     expect(a.id).not.toBe(b.id)
   })
 })
