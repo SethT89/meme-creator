@@ -7,23 +7,27 @@ import { Plus, X, Type, Image as ImageIcon, Sticker, Smile } from 'lucide-react'
 const FAB_ACTIONS = [
   { key: 'emoji', label: 'Add Emoji', Icon: Smile },
   { key: 'sticker', label: 'Add Sticker', Icon: Sticker },
-  { key: 'image', label: 'Add Image', Icon: ImageIcon },
+  { key: 'image', label: 'Upload Image', Icon: ImageIcon },
   { key: 'text', label: 'Add Text', Icon: Type },
 ] as const
 
 interface CanvasFabProps {
-  // Only Add Text is wired up to a real action so far — the other three
-  // stay no-op placeholders (see FAB_ACTIONS below) until each one has
-  // somewhere real to go.
+  // Add Text and Upload Image are wired up to real actions — Add Emoji and
+  // Add Sticker stay no-op placeholders (see FAB_ACTIONS below) until each
+  // one has somewhere real to go.
   onAddText?: () => void
+  onAddImage?: () => void
 }
 
-export function CanvasFab({ onAddText }: CanvasFabProps) {
+export function CanvasFab({ onAddText, onAddImage }: CanvasFabProps) {
   const [open, setOpen] = useState(false)
 
   function handleActionClick(key: (typeof FAB_ACTIONS)[number]['key']) {
     if (key === 'text') {
       onAddText?.()
+      setOpen(false)
+    } else if (key === 'image') {
+      onAddImage?.()
       setOpen(false)
     }
   }

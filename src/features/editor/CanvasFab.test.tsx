@@ -18,7 +18,7 @@ describe('CanvasFab', () => {
     const expectedOrder = [
       screen.getByRole('button', { name: 'Add Emoji' }),
       screen.getByRole('button', { name: 'Add Sticker' }),
-      screen.getByRole('button', { name: 'Add Image' }),
+      screen.getByRole('button', { name: 'Upload Image' }),
       screen.getByRole('button', { name: 'Add Text' }),
     ]
     // DOM order matches the visual top-to-bottom stacking order (flex-col),
@@ -45,6 +45,18 @@ describe('CanvasFab', () => {
 
     expect(onAddText).toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: 'Add Text' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Open add menu' })).toBeInTheDocument()
+  })
+
+  it('clicking Upload Image calls onAddImage and closes the menu', async () => {
+    const onAddImage = vi.fn()
+    render(<CanvasFab onAddImage={onAddImage} />)
+    await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+
+    expect(onAddImage).toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Upload Image' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Open add menu' })).toBeInTheDocument()
   })
 

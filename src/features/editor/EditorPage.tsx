@@ -1,5 +1,10 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { PointerEvent as ReactPointerEvent, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react'
+import type {
+  PointerEvent as ReactPointerEvent,
+  KeyboardEvent as ReactKeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  ChangeEvent as ReactChangeEvent,
+} from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
@@ -18,13 +23,34 @@ import { layersFromCanvasData, applyDragDelta, applyResizeDelta, createBlankText
 import type { Layer, ResizeSign } from '../../lib/layers'
 import { renderCreationToBlob } from '../../lib/exportCanvas'
 import { canShareFile, downloadBlob, isMobileOrTabletDevice, sanitizeFilename, shareFile } from '../../lib/exportDelivery'
+import { supabase } from '../../lib/supabase'
 import type { Json } from '../../types/database'
 
 type Source =
-  | { type: 'freeform'; name: string }
+  | { type: 'freeform'; name: string; imageUrl?: string; imageWidth?: number; imageHeight?: number }
   | { type: 'template'; name: string; templateId: string; blankImageUrl: string }
   | null
 type SavedMeta = { id: string; name: string; tags: string[] } | null
+type FreeformCanvasData = { layers?: Layer[]; imageUrl?: string; imageWidth?: number; imageHeight?: number }
+
+// Reads natural pixel dimensions from a locally-picked file, without waiting
+// on a network round trip to the (not-yet-uploaded) image — an object URL
+// resolves instantly since the bytes are already on disk.
+function readImageDimensions(file: File): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl)
+      resolve({ width: img.naturalWidth, height: img.naturalHeight })
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl)
+      reject(new Error('Could not read image dimensions'))
+    }
+    img.src = objectUrl
+  })
+}
 
 // The 8 resize handles: 4 corners (control both axes) and 4 edge midpoints
 // (control only their own axis). top/left as CSS percentages position each
@@ -69,6 +95,8 @@ export function EditorPage() {
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
   const [pendingTemplate, setPendingTemplate] = useState<SelectedTemplate | null>(null)
   const [exporting, setExporting] = useState(false)
+  const [uploadingImage, setUploadingImage] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [toast, setToast] = useState<{ message: string; isError: boolean } | null>(null)
 
   const { data: fields = [] } = useTemplateFields(source?.type === 'template' ? source.templateId : undefined)
@@ -210,7 +238,14 @@ export function EditorPage() {
       }
     } else {
       setLoadedCreationId(existingCreation.id)
-      setSource({ type: 'freeform', name: existingCreation.name.replace(/ \d+$/, '') || existingCreation.name })
+      const canvasData = existingCreation.canvas_data as FreeformCanvasData | null
+      setSource({
+        type: 'freeform',
+        name: existingCreation.name.replace(/ \d+$/, '') || existingCreation.name,
+        imageUrl: canvasData?.imageUrl,
+        imageWidth: canvasData?.imageWidth,
+        imageHeight: canvasData?.imageHeight,
+      })
       setSavedMeta({ id: existingCreation.id, name: existingCreation.name, tags: existingCreation.tags })
     }
   }
@@ -332,6 +367,58 @@ export function EditorPage() {
     setEditingLayerId(newLayer.id)
   }
 
+  // CanvasFab's Upload Image action. Opens the browser/OS's native file
+  // picker via the hidden <input type="file"> below — on mobile that picker
+  // itself offers Photo Library / Camera / Files, and the OS handles any
+  // permission prompt (e.g. iOS's photo-access dialog) automatically the
+  // moment the user picks one, so no explicit permission request is needed
+  // here. A no-op while a template is loaded, same as Add Text is a no-op on
+  // the blank canvas — Upload Image establishes/replaces a freeform
+  // canvas's background image, not a layer on top of a template.
+  function handleAddImage() {
+    if (source?.type === 'template' || uploadingImage) return
+    fileInputRef.current?.click()
+  }
+
+  async function handleImageFileSelected(e: ReactChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = '' // reset so picking the same file again still fires this handler
+    if (!file) return
+    if (!file.type.startsWith('image/')) {
+      setToast({ message: 'Please choose an image file.', isError: true })
+      return
+    }
+    setUploadingImage(true)
+    try {
+      const { width, height } = await readImageDimensions(file)
+      const ext = file.name.split('.').pop()?.toLowerCase() || 'png'
+      const path = `${crypto.randomUUID()}.${ext}`
+      const { error: uploadError } = await supabase.storage.from('creation-assets').upload(path, file)
+      if (uploadError) throw uploadError
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from('creation-assets').getPublicUrl(path)
+
+      if (source?.type === 'freeform') {
+        setSource({ ...source, imageUrl: publicUrl, imageWidth: width, imageHeight: height })
+      } else {
+        // Starting fresh from the blank canvas — Upload Image is its entry point.
+        const baseName = file.name.replace(/\.[^/.]+$/, '').trim() || 'Untitled'
+        setSource({ type: 'freeform', name: baseName, imageUrl: publicUrl, imageWidth: width, imageHeight: height })
+        setSavedMeta(null)
+        setSelectedFieldId(null)
+        setEditingLayerId(null)
+        setLayers([])
+        setLayersSeededFor(undefined)
+        baselineLayersRef.current = []
+      }
+    } catch {
+      setToast({ message: 'Upload failed — try again.', isError: true })
+    } finally {
+      setUploadingImage(false)
+    }
+  }
+
   function handleLabelInput(layerId: string, text: string) {
     setLayers((prev) => prev.map((l) => (l.id === layerId ? { ...l, label: text } : l)))
   }
@@ -421,6 +508,19 @@ export function EditorPage() {
       : nextAvailableName(source?.name ?? '', allCreations.map((c) => c.name))
   const defaultTags = dialogMode === 'saveAs' && savedMeta ? savedMeta.tags : []
 
+  // Layer only has string/number fields, and the freeform extras below are
+  // all string/number too, so this is genuinely JSON-safe — Json's recursive
+  // index-signature type just can't verify a concrete interface without one,
+  // which is a known TS/Supabase-generated-types limitation, not a real type
+  // mismatch.
+  function buildCanvasData(activeSource: Source): Json {
+    const freeformExtras =
+      activeSource?.type === 'freeform'
+        ? { imageUrl: activeSource.imageUrl, imageWidth: activeSource.imageWidth, imageHeight: activeSource.imageHeight }
+        : {}
+    return { layers, ...freeformExtras } as unknown as Json
+  }
+
   function handleDialogSave(name: string, tags: string[]) {
     const activeSource = source! // guaranteed non-null: Save to Gallery only renders once source is set
     createCreation.mutate(
@@ -429,11 +529,7 @@ export function EditorPage() {
         tags,
         sourceType: activeSource.type,
         templateId: activeSource.type === 'template' ? activeSource.templateId : null,
-        // Layer only has string/number fields, so this is genuinely JSON-safe —
-        // Json's recursive index-signature type just can't verify a concrete
-        // interface without one, which is a known TS/Supabase-generated-types
-        // limitation, not a real type mismatch.
-        canvasData: { layers } as unknown as Json,
+        canvasData: buildCanvasData(activeSource),
       },
       {
         onSuccess: (row) => {
@@ -446,7 +542,7 @@ export function EditorPage() {
 
   function handleQuickSave() {
     if (!savedMeta) return
-    updateCreation.mutate({ id: savedMeta.id, name: savedMeta.name, tags: savedMeta.tags, canvasData: { layers } as unknown as Json })
+    updateCreation.mutate({ id: savedMeta.id, name: savedMeta.name, tags: savedMeta.tags, canvasData: buildCanvasData(source) })
   }
 
   async function handleExport() {
@@ -598,7 +694,19 @@ export function EditorPage() {
                 className="block max-h-[65vh] w-auto max-w-full sm:max-h-[calc(100vh-19rem)] sm:min-h-[240px]"
               />
             )}
-            {source?.type === 'freeform' && (
+            {source?.type === 'freeform' && source.imageUrl && (
+              <img
+                src={source.imageUrl}
+                alt={source.name}
+                style={
+                  source.imageWidth && source.imageHeight
+                    ? { aspectRatio: `${source.imageWidth} / ${source.imageHeight}` }
+                    : undefined
+                }
+                className="block max-h-[65vh] w-auto max-w-full sm:max-h-[calc(100vh-19rem)] sm:min-h-[240px]"
+              />
+            )}
+            {source?.type === 'freeform' && !source.imageUrl && (
               <div className="flex h-80 w-80 items-center justify-center border border-border bg-muted text-sm text-muted-foreground">
                 {source.name}
               </div>
@@ -771,7 +879,14 @@ export function EditorPage() {
                 a template is loaded — it's the entry point for starting from
                 scratch (upload an image, add a sticker/text) as well as for
                 adding to a loaded template. */}
-            <CanvasFab onAddText={handleAddText} />
+            <CanvasFab onAddText={handleAddText} onAddImage={handleAddImage} />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleImageFileSelected}
+            />
           </div>
         </div>
       </div>
