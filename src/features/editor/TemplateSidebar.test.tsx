@@ -58,6 +58,16 @@ describe('TemplateSidebar', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
+  it('puts Search All Memes above the template list, not below it', async () => {
+    renderWithQuery(<TemplateSidebar selectedTemplateId={undefined} onSelectTemplate={vi.fn()} />)
+    await screen.findByRole('button', { name: 'Two Buttons' })
+
+    const allButtons = screen.getAllByRole('button').map((b) => b.textContent)
+    const searchIndex = allButtons.findIndex((t) => t === 'Search All Memes')
+    const firstTemplateIndex = allButtons.findIndex((t) => t === 'Drake' || t === 'Two Buttons')
+    expect(searchIndex).toBeLessThan(firstTemplateIndex)
+  })
+
   it('is collapsed by default and expands into a drawer when its toggle is clicked', async () => {
     renderWithQuery(<TemplateSidebar selectedTemplateId={undefined} onSelectTemplate={vi.fn()} />)
 

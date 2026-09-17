@@ -29,7 +29,35 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
 
   const listContent = (
     <>
-      <div className="flex-1 space-y-2 overflow-y-auto">
+      <button
+        type="button"
+        onClick={() => setSearchOpen(true)}
+        className="mb-2 w-full shrink-0 rounded-md border border-border p-2 text-sm font-medium hover:bg-muted"
+      >
+        Search All Memes
+      </button>
+
+      {/* min-h-0 flex-1 alone doesn't get this div a real internal
+          scrollbar here — the app's root uses min-h-screen (a floor, not a
+          cap), and a flex container sized that way asks each descendant for
+          its own natural/max-content size when computing its own height,
+          regardless of flex-grow/min-height on the way down (confirmed
+          live: even overflow:hidden + min-height:0 on every ancestor up to
+          <main> didn't stop the page from growing to fit 10 templates —
+          only a *hard*, non-flex-grow height cap on some element in the
+          chain breaks that). sm:max-h-[calc(100vh-238px)] is that cap,
+          scoped to just this list (not a page-wide layout change, since
+          only this panel needs to scroll independently — the page growing
+          for other tall content is otherwise still fine). 238px = the
+          fixed chrome above and below this list (header + padding + the
+          Search button + margins), measured live; same "wrong shape of
+          formula" trap as CanvasFab's image sizing applies here too if this
+          ever needs adjusting — it must scale at 1x viewport height minus a
+          constant, not some fraction of vh. Cards themselves are never
+          resized to fit more in view — this scrolls instead, at a fixed
+          card size. Not applied below sm: the mobile drawer is a fixed
+          h-full overlay already, not subject to this. */}
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto sm:max-h-[calc(100vh-238px)]">
         {templates.map((t) => (
           <button
             key={t.id}
@@ -47,14 +75,6 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
           </button>
         ))}
       </div>
-
-      <button
-        type="button"
-        onClick={() => setSearchOpen(true)}
-        className="mt-2 w-full rounded-md border border-border p-2 text-sm font-medium hover:bg-muted"
-      >
-        Search All Memes
-      </button>
     </>
   )
 
