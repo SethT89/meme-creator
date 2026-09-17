@@ -37,6 +37,32 @@ describe('PropertyBar', () => {
     expect(onChangeFontSize).toHaveBeenCalledWith(300)
   })
 
+  it('updates live as you type a custom size, before any blur or Enter', async () => {
+    const onChangeFontSize = vi.fn()
+    render(<PropertyBar fontSize={36} onChangeFontSize={onChangeFontSize} onDelete={() => {}} />)
+
+    await userEvent.click(screen.getByText(/size: medium/i))
+    const input = screen.getByLabelText(/custom font size/i)
+    await userEvent.clear(input)
+    await userEvent.type(input, '50')
+
+    // No blur, no Enter — the on-canvas preview should already reflect it.
+    expect(onChangeFontSize).toHaveBeenCalledWith(50)
+  })
+
+  it('does not fire on an empty (in-progress) custom size value', async () => {
+    const onChangeFontSize = vi.fn()
+    render(<PropertyBar fontSize={36} onChangeFontSize={onChangeFontSize} onDelete={() => {}} />)
+
+    await userEvent.click(screen.getByText(/size: medium/i))
+    const input = screen.getByLabelText(/custom font size/i)
+    await userEvent.clear(input)
+
+    // Clearing the field to type a fresh number shouldn't flash the
+    // on-canvas text down to the minimum size in the meantime.
+    expect(onChangeFontSize).not.toHaveBeenCalled()
+  })
+
   it('clicking Delete calls onDelete', async () => {
     const onDelete = vi.fn()
     render(<PropertyBar fontSize={36} onChangeFontSize={() => {}} onDelete={onDelete} />)

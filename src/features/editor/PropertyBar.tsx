@@ -11,6 +11,10 @@ export function PropertyBar({ fontSize, onChangeFontSize, onDelete }: PropertyBa
   const [panelOpen, setPanelOpen] = useState(false)
 
   function applyCustomSize(raw: string) {
+    // Empty is a normal in-progress state (cleared the field to type a
+    // fresh number) — Number('') is 0, not NaN, so without this guard it'd
+    // flash the on-canvas text down to MIN_FONT_SIZE for a moment.
+    if (raw === '') return
     const parsed = Number(raw)
     if (Number.isNaN(parsed)) return
     onChangeFontSize(clampFontSize(parsed))
@@ -53,6 +57,11 @@ export function PropertyBar({ fontSize, onChangeFontSize, onDelete }: PropertyBa
                 type="number"
                 defaultValue={fontSize}
                 className="w-full rounded-md bg-neutral-800 px-2 py-1 text-sm text-white"
+                // The on-canvas preview should track every keystroke, not
+                // just the final committed value — onBlur/Enter below are
+                // now just redundant convenience (harmless to keep; Enter
+                // also closes the panel).
+                onChange={(e) => applyCustomSize(e.currentTarget.value)}
                 onBlur={(e) => applyCustomSize(e.currentTarget.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
