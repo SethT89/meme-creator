@@ -1,9 +1,10 @@
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type {
   PointerEvent as ReactPointerEvent,
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
   ChangeEvent as ReactChangeEvent,
+  RefObject,
 } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -19,19 +20,19 @@ import { SaveDialog } from './SaveDialog'
 import { useCreation, useCreateCreation, useCreations, useUpdateCreation } from '../../lib/queries/creations'
 import { useTemplates, useTemplateFields } from '../../lib/queries/templates'
 import { nextAvailableName } from '../../lib/creationNaming'
-import { layersFromCanvasData, applyDragDelta, applyResizeDelta, createBlankTextLayer } from '../../lib/layers'
-import type { Layer, ResizeSign } from '../../lib/layers'
+import { layersFromCanvasData, applyDragDelta, applyResizeDelta, createBlankTextLayer, createImageLayer, MIN_CANVAS_SIZE } from '../../lib/layers'
+import type { Layer, TextLayer, ResizeSign } from '../../lib/layers'
 import { renderCreationToBlob } from '../../lib/exportCanvas'
 import { canShareFile, downloadBlob, isMobileOrTabletDevice, sanitizeFilename, shareFile } from '../../lib/exportDelivery'
 import { supabase } from '../../lib/supabase'
 import type { Json } from '../../types/database'
 
 type Source =
-  | { type: 'freeform'; name: string; imageUrl?: string; imageWidth?: number; imageHeight?: number }
+  | { type: 'freeform'; name: string; canvasWidth?: number; canvasHeight?: number }
   | { type: 'template'; name: string; templateId: string; blankImageUrl: string }
   | null
 type SavedMeta = { id: string; name: string; tags: string[] } | null
-type FreeformCanvasData = { layers?: Layer[]; imageUrl?: string; imageWidth?: number; imageHeight?: number }
+type FreeformCanvasData = { layers?: Layer[]; canvasWidth?: number; canvasHeight?: number }
 
 // Reads natural pixel dimensions from a locally-picked file, without waiting
 // on a network round trip to the (not-yet-uploaded) image — an object URL
@@ -63,6 +64,17 @@ const RESIZE_HANDLES: { key: string; top: string; left: string; cursor: string; 
   { key: 'lm', top: '50%', left: '0%', cursor: 'ew-resize', xSign: -1, ySign: 0 },
   { key: 'rm', top: '50%', left: '100%', cursor: 'ew-resize', xSign: 1, ySign: 0 },
   { key: 'bl', top: '100%', left: '0%', cursor: 'nesw-resize', xSign: -1, ySign: 1 },
+  { key: 'bm', top: '100%', left: '50%', cursor: 'ns-resize', xSign: 0, ySign: 1 },
+  { key: 'br', top: '100%', left: '100%', cursor: 'nwse-resize', xSign: 1, ySign: 1 },
+]
+
+// Canvas-resize handles — right edge, bottom edge, bottom-right corner only.
+// See the design doc's scope note: growing/shrinking from these three never
+// requires moving existing layers' x/y, since the canvas's own origin (0,0)
+// never moves. Left/top-edge growth would need to shift every layer's
+// position too, and isn't needed yet.
+const CANVAS_RESIZE_HANDLES: { key: string; top: string; left: string; cursor: string; xSign: ResizeSign; ySign: ResizeSign }[] = [
+  { key: 'rm', top: '50%', left: '100%', cursor: 'ew-resize', xSign: 1, ySign: 0 },
   { key: 'bm', top: '100%', left: '50%', cursor: 'ns-resize', xSign: 0, ySign: 1 },
   { key: 'br', top: '100%', left: '100%', cursor: 'nwse-resize', xSign: 1, ySign: 1 },
 ]
@@ -99,6 +111,27 @@ export function EditorPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [toast, setToast] = useState<{ message: string; isError: boolean } | null>(null)
 
+  const templateRow = source?.type === 'template' ? allTemplates.find((t) => t.id === source.templateId) : undefined
+  // The one generalized "how big is the surface I'm drawing on" value —
+  // real pixel width/height regardless of whether that comes from a
+  // template row or a freeform source's own canvasWidth/canvasHeight.
+  // Every place that used to read templateRow.image_width/image_height
+  // purely for the percentage/coordinate math now reads this instead, which
+  // is what lets drag/resize/Add Text work identically on a freeform canvas.
+  // Memoized so its reference only changes when the underlying dimensions
+  // actually do — a fresh object literal every render would break the
+  // useLayoutEffect below, which depends on activeCanvas directly (React's
+  // effect-dependency comparison is by reference, so a new object every
+  // render re-fires the effect every render — including from inside the
+  // effect's own setState call, which is an infinite loop).
+  const activeCanvas = useMemo(() => {
+    if (templateRow) return { width: templateRow.image_width, height: templateRow.image_height }
+    if (source?.type === 'freeform' && source.canvasWidth && source.canvasHeight) {
+      return { width: source.canvasWidth, height: source.canvasHeight }
+    }
+    return undefined
+  }, [templateRow, source])
+
   const { data: fields = [] } = useTemplateFields(source?.type === 'template' ? source.templateId : undefined)
   const [layers, setLayers] = useState<Layer[]>([])
   const [layersSeededFor, setLayersSeededFor] = useState<string | undefined>(undefined)
@@ -109,7 +142,7 @@ export function EditorPage() {
   // lose. A ref, not state: it's only ever read at the moment of an action
   // (switching templates), never rendered.
   const baselineLayersRef = useRef<Layer[]>([])
-  const imgRef = useRef<HTMLImageElement>(null)
+  const imgRef = useRef<HTMLElement>(null)
   const canvasScrollRef = useRef<HTMLDivElement>(null)
   // Fixed-position (viewport pixel) anchor for the portaled PropertyBar —
   // see the useLayoutEffect below for why this is measured into state
@@ -124,6 +157,9 @@ export function EditorPage() {
     moved: boolean
   } | null>(null)
   const resizeState = useRef<{ id: string; startX: number; startY: number; layerStart: Layer; xSign: ResizeSign; ySign: ResizeSign } | null>(
+    null,
+  )
+  const canvasResizeState = useRef<{ startX: number; startY: number; startWidth: number; startHeight: number; xSign: ResizeSign; ySign: ResizeSign } | null>(
     null,
   )
 
@@ -189,18 +225,17 @@ export function EditorPage() {
   // template changes, and again on scroll/resize, since neither of those
   // changes React state on its own.
   useLayoutEffect(() => {
-    const templateRow = source?.type === 'template' ? allTemplates.find((t) => t.id === source.templateId) : undefined
     const layer = layers.find((l) => l.id === selectedFieldId)
     // Nothing to measure — and nothing to reset either: the render below
     // already gates the portal on `isSelected`, so a stale propertyBarPos
     // simply won't be used once nothing (or a different layer) is selected.
-    if (!layer || !templateRow) return
+    if (!layer || !activeCanvas) return
     function measure() {
-      if (!imgRef.current || !templateRow || !layer) return
+      if (!imgRef.current || !activeCanvas || !layer) return
       const imgRect = imgRef.current.getBoundingClientRect()
-      const leftPct = (layer.x / templateRow.image_width) * 100
-      const topPct = (layer.y / templateRow.image_height) * 100
-      const widthPct = (layer.width / templateRow.image_width) * 100
+      const leftPct = (layer.x / activeCanvas.width) * 100
+      const topPct = (layer.y / activeCanvas.height) * 100
+      const widthPct = (layer.width / activeCanvas.width) * 100
       setPropertyBarPos({
         left: imgRect.left + ((leftPct + widthPct / 2) / 100) * imgRect.width,
         top: imgRect.top + (topPct / 100) * imgRect.height,
@@ -214,7 +249,7 @@ export function EditorPage() {
       scrollEl?.removeEventListener('scroll', measure)
       window.removeEventListener('resize', measure)
     }
-  }, [source, allTemplates, layers, selectedFieldId])
+  }, [activeCanvas, layers, selectedFieldId])
 
   // When editing an existing creation, sync local state from it the first time
   // it loads for this id — done during render (not in an effect) so it doesn't
@@ -242,10 +277,12 @@ export function EditorPage() {
       setSource({
         type: 'freeform',
         name: existingCreation.name.replace(/ \d+$/, '') || existingCreation.name,
-        imageUrl: canvasData?.imageUrl,
-        imageWidth: canvasData?.imageWidth,
-        imageHeight: canvasData?.imageHeight,
+        canvasWidth: canvasData?.canvasWidth,
+        canvasHeight: canvasData?.canvasHeight,
       })
+      const seeded = layersFromCanvasData(existingCreation.canvas_data, [])
+      setLayers(seeded)
+      baselineLayersRef.current = seeded
       setSavedMeta({ id: existingCreation.id, name: existingCreation.name, tags: existingCreation.tags })
     }
   }
@@ -267,8 +304,6 @@ export function EditorPage() {
   if (creationId && loadingExisting) {
     return <p className="text-sm text-muted-foreground">Loading…</p>
   }
-
-  const templateRow = source?.type === 'template' ? allTemplates.find((t) => t.id === source.templateId) : undefined
 
   function clearCanvas() {
     setSource(null)
@@ -344,7 +379,7 @@ export function EditorPage() {
     e.currentTarget.setPointerCapture?.(e.pointerId)
   }
 
-  function handleDoubleClick(e: ReactMouseEvent<HTMLDivElement>, layer: Layer) {
+  function handleDoubleClick(e: ReactMouseEvent<HTMLDivElement>, layer: TextLayer) {
     e.stopPropagation()
     setSelectedFieldId(layer.id)
     editStartLabel.current = layer.label
@@ -352,14 +387,15 @@ export function EditorPage() {
     setEditingLayerId(layer.id)
   }
 
-  // CanvasFab's Add Text action. A no-op on the blank canvas (no image yet
-  // to place text on — that's future work, tied to Add Image establishing a
-  // freeform canvas). Same select-and-enter-edit-mode sequence
-  // handleDoubleClick uses, so the new box opens with focus and the cursor
-  // ready to type, exactly like double-clicking an existing one.
+  // CanvasFab's Add Text action. A no-op until there's a real canvas to
+  // place text on — no template loaded, and no freeform canvas established
+  // yet (that needs at least one uploaded image; see handleImageFileSelected
+  // below). Same select-and-enter-edit-mode sequence handleDoubleClick uses,
+  // so the new box opens with focus and the cursor ready to type, exactly
+  // like double-clicking an existing one.
   function handleAddText() {
-    if (!templateRow) return
-    const newLayer = createBlankTextLayer(templateRow.image_width, templateRow.image_height)
+    if (!activeCanvas) return
+    const newLayer = createBlankTextLayer(activeCanvas.width, activeCanvas.height)
     setLayers((prev) => [...prev, newLayer])
     setSelectedFieldId(newLayer.id)
     editStartLabel.current = ''
@@ -372,9 +408,9 @@ export function EditorPage() {
   // itself offers Photo Library / Camera / Files, and the OS handles any
   // permission prompt (e.g. iOS's photo-access dialog) automatically the
   // moment the user picks one, so no explicit permission request is needed
-  // here. A no-op while a template is loaded, same as Add Text is a no-op on
-  // the blank canvas — Upload Image establishes/replaces a freeform
-  // canvas's background image, not a layer on top of a template.
+  // here. A no-op while a template is loaded — Upload Image only applies to
+  // a freeform canvas (establishing one from blank, or adding to an
+  // existing one), never adds a layer on top of a template.
   function handleAddImage() {
     if (source?.type === 'template' || uploadingImage) return
     fileInputRef.current?.click()
@@ -399,18 +435,26 @@ export function EditorPage() {
         data: { publicUrl },
       } = supabase.storage.from('creation-assets').getPublicUrl(path)
 
-      if (source?.type === 'freeform') {
-        setSource({ ...source, imageUrl: publicUrl, imageWidth: width, imageHeight: height })
+      if (source?.type === 'freeform' && source.canvasWidth && source.canvasHeight) {
+        // Adding to an existing canvas — auto-scaled to fit, canvas size untouched.
+        const newLayer = createImageLayer(publicUrl, width, height, { width: source.canvasWidth, height: source.canvasHeight })
+        setLayers((prev) => [...prev, newLayer])
       } else {
-        // Starting fresh from the blank canvas — Upload Image is its entry point.
+        // Starting fresh from the blank canvas — Upload Image is its entry
+        // point. This first image defines the canvas's own size.
         const baseName = file.name.replace(/\.[^/.]+$/, '').trim() || 'Untitled'
-        setSource({ type: 'freeform', name: baseName, imageUrl: publicUrl, imageWidth: width, imageHeight: height })
+        const newLayer = createImageLayer(publicUrl, width, height)
+        setSource({ type: 'freeform', name: baseName, canvasWidth: width, canvasHeight: height })
         setSavedMeta(null)
         setSelectedFieldId(null)
         setEditingLayerId(null)
-        setLayers([])
+        setLayers([newLayer])
         setLayersSeededFor(undefined)
-        baselineLayersRef.current = []
+        // The freshly-created canvas's starting point already includes this
+        // first image — matches loadTemplate's baseline-equals-just-seeded
+        // pattern, so switching away without adding anything else doesn't
+        // spuriously prompt to discard work.
+        baselineLayersRef.current = [newLayer]
       }
     } catch {
       setToast({ message: 'Upload failed — try again.', isError: true })
@@ -440,12 +484,12 @@ export function EditorPage() {
 
   function handlePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
     const drag = dragState.current
-    if (!drag || !templateRow || !imgRef.current) return
+    if (!drag || !activeCanvas || !imgRef.current) return
     const deltaXPx = e.clientX - drag.startX
     const deltaYPx = e.clientY - drag.startY
     if (!drag.moved && Math.hypot(deltaXPx, deltaYPx) < 4) return
     drag.moved = true
-    const displayScale = imgRef.current.getBoundingClientRect().width / templateRow.image_width
+    const displayScale = imgRef.current.getBoundingClientRect().width / activeCanvas.width
     setLayers((prev) =>
       prev.map((l) =>
         l.id === drag.id
@@ -454,8 +498,8 @@ export function EditorPage() {
               deltaXPx,
               deltaYPx,
               displayScale,
-              templateRow.image_width,
-              templateRow.image_height,
+              activeCanvas.width,
+              activeCanvas.height,
             )
           : l,
       ),
@@ -475,10 +519,10 @@ export function EditorPage() {
   function handleResizePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
     e.stopPropagation()
     const resize = resizeState.current
-    if (!resize || !templateRow || !imgRef.current) return
+    if (!resize || !activeCanvas || !imgRef.current) return
     const deltaXPx = e.clientX - resize.startX
     const deltaYPx = e.clientY - resize.startY
-    const displayScale = imgRef.current.getBoundingClientRect().width / templateRow.image_width
+    const displayScale = imgRef.current.getBoundingClientRect().width / activeCanvas.width
     setLayers((prev) =>
       prev.map((l) =>
         l.id === resize.id
@@ -491,6 +535,42 @@ export function EditorPage() {
   function handleResizePointerUp(e: ReactPointerEvent<HTMLDivElement>) {
     e.stopPropagation()
     resizeState.current = null
+  }
+
+  // Canvas-resize handles (rendered below) — right/bottom edges and the
+  // bottom-right corner only. Growing/shrinking from those edges never
+  // needs to move existing layers' x/y, since the canvas's own origin
+  // (0,0) never moves; left/top-edge growth would require shifting every
+  // layer's position too and isn't needed yet (see the design doc's scope
+  // note).
+  function handleCanvasResizePointerDown(e: ReactPointerEvent<HTMLDivElement>, xSign: ResizeSign, ySign: ResizeSign) {
+    e.stopPropagation()
+    if (source?.type !== 'freeform' || !source.canvasWidth || !source.canvasHeight) return
+    canvasResizeState.current = { startX: e.clientX, startY: e.clientY, startWidth: source.canvasWidth, startHeight: source.canvasHeight, xSign, ySign }
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+  }
+
+  function handleCanvasResizePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    e.stopPropagation()
+    const resize = canvasResizeState.current
+    if (!resize || !imgRef.current) return
+    const displayScale = imgRef.current.getBoundingClientRect().width / resize.startWidth
+    const deltaX = (e.clientX - resize.startX) / displayScale
+    const deltaY = (e.clientY - resize.startY) / displayScale
+    setSource((prev) =>
+      prev?.type === 'freeform'
+        ? {
+            ...prev,
+            canvasWidth: resize.xSign === 1 ? Math.max(MIN_CANVAS_SIZE, resize.startWidth + deltaX) : prev.canvasWidth,
+            canvasHeight: resize.ySign === 1 ? Math.max(MIN_CANVAS_SIZE, resize.startHeight + deltaY) : prev.canvasHeight,
+          }
+        : prev,
+    )
+  }
+
+  function handleCanvasResizePointerUp(e: ReactPointerEvent<HTMLDivElement>) {
+    e.stopPropagation()
+    canvasResizeState.current = null
   }
 
   function handleChangeFontSize(layerId: string, px: number) {
@@ -515,9 +595,7 @@ export function EditorPage() {
   // mismatch.
   function buildCanvasData(activeSource: Source): Json {
     const freeformExtras =
-      activeSource?.type === 'freeform'
-        ? { imageUrl: activeSource.imageUrl, imageWidth: activeSource.imageWidth, imageHeight: activeSource.imageHeight }
-        : {}
+      activeSource?.type === 'freeform' ? { canvasWidth: activeSource.canvasWidth, canvasHeight: activeSource.canvasHeight } : {}
     return { layers, ...freeformExtras } as unknown as Json
   }
 
@@ -549,7 +627,7 @@ export function EditorPage() {
     if (!source || source.type !== 'template' || !templateRow || !imgRef.current) return
     setExporting(true)
     try {
-      const blob = await renderCreationToBlob(imgRef.current, templateRow, layers)
+      const blob = await renderCreationToBlob(imgRef.current as HTMLImageElement, templateRow, layers)
       const filename = `${sanitizeFilename(savedMeta?.name ?? source.name)}.png`
       const file = new File([blob], filename, { type: 'image/png' })
       if (isMobileOrTabletDevice() && canShareFile(file)) {
@@ -656,7 +734,7 @@ export function EditorPage() {
             )}
             {source?.type === 'template' && (
               <img
-                ref={imgRef}
+                ref={imgRef as RefObject<HTMLImageElement>}
                 src={source.blankImageUrl}
                 alt={source.name}
                 // Needed for canvas.toBlob() in renderCreationToBlob to not
@@ -694,159 +772,174 @@ export function EditorPage() {
                 className="block max-h-[65vh] w-auto max-w-full sm:max-h-[calc(100vh-19rem)] sm:min-h-[240px]"
               />
             )}
-            {source?.type === 'freeform' && source.imageUrl && (
-              <img
-                src={source.imageUrl}
-                alt={source.name}
-                style={
-                  source.imageWidth && source.imageHeight
-                    ? { aspectRatio: `${source.imageWidth} / ${source.imageHeight}` }
-                    : undefined
-                }
-                className="block max-h-[65vh] w-auto max-w-full sm:max-h-[calc(100vh-19rem)] sm:min-h-[240px]"
+            {source?.type === 'freeform' && activeCanvas && (
+              <div
+                ref={imgRef as RefObject<HTMLDivElement>}
+                style={{ aspectRatio: `${activeCanvas.width} / ${activeCanvas.height}` }}
+                className="block max-h-[65vh] w-auto max-w-full bg-white sm:max-h-[calc(100vh-19rem)] sm:min-h-[240px]"
               />
             )}
-            {source?.type === 'freeform' && !source.imageUrl && (
+            {source?.type === 'freeform' && !activeCanvas && (
               <div className="flex h-80 w-80 items-center justify-center border border-border bg-muted text-sm text-muted-foreground">
                 {source.name}
               </div>
             )}
 
-            {source?.type === 'template' && templateRow && (
+            {activeCanvas && (
               // A separate, absolutely-positioned @container layer rather than
               // putting @container directly on the inline-block wrapper above:
               // an element that shrink-wraps to its content (inline-block) and
               // is also a size container at once is a circular CSS dependency
               // browsers resolve by collapsing it to 0×0. This inner div is
               // inset:0 — its size comes from the already-resolved outer box
-              // (which shrink-wraps to the <img>), not from its own content, so
-              // containment here has nothing circular to resolve.
+              // (which shrink-wraps to the sized img/div above), not from its
+              // own content, so containment here has nothing circular to resolve.
               <div className="absolute inset-0 @container">
                 {layers.map((layer) => {
-                  const leftPct = (layer.x / templateRow.image_width) * 100
-                  const topPct = (layer.y / templateRow.image_height) * 100
-                  const widthPct = (layer.width / templateRow.image_width) * 100
-                  const heightPct = (layer.height / templateRow.image_height) * 100
-                  // font-size scaled to the image's own rendered width via a CSS
-                  // container query unit, the same percentage-of-image math the
-                  // position/width above already use — otherwise font size would
-                  // render as a literal screen-px value regardless of how large
-                  // the template is actually displayed.
-                  const fontSizeCqw = (layer.fontSize / templateRow.image_width) * 100
-
+                  const leftPct = (layer.x / activeCanvas.width) * 100
+                  const topPct = (layer.y / activeCanvas.height) * 100
+                  const widthPct = (layer.width / activeCanvas.width) * 100
+                  const heightPct = (layer.height / activeCanvas.height) * 100
                   const isSelected = selectedFieldId === layer.id
                   const isEditing = editingLayerId === layer.id
 
                   return (
                     <Fragment key={layer.id}>
-                      <div
-                        // Forces a full remount (not a diff) when entering/exiting
-                        // edit mode. While editing, the browser mutates this
-                        // element's real DOM text via native contentEditable
-                        // typing — React never tracks those changes (children
-                        // renders as `false` below). Reconciling back into
-                        // React-owned `{layer.label}` children afterward would
-                        // make React try to diff against DOM it doesn't
-                        // recognize, which can throw. A key change sidesteps
-                        // that entirely: React just discards the old subtree
-                        // and mounts a fresh one.
-                        key={isEditing ? `${layer.id}-edit` : `${layer.id}-view`}
-                        // White fill + black outline (classic meme-text look) —
-                        // legible regardless of what's underneath. Stroke width
-                        // in em so it scales with this box's own font-size
-                        // (itself already scaled to the image via cqw, see
-                        // fontSize below) without a second scaling calc.
-                        // paint-order draws the stroke behind the fill so it
-                        // doesn't eat into/thin the white letterforms.
-                        className={`absolute p-1 text-center font-bold text-white outline-none [-webkit-text-stroke:0.24em_black] [paint-order:stroke_fill] ${
-                          isSelected ? 'border border-blue-500' : 'border border-transparent'
-                        } ${isEditing ? 'cursor-text' : 'cursor-grab touch-none active:cursor-grabbing'} ${
-                          isSelected && !isEditing ? 'hover:underline hover:decoration-blue-500' : ''
-                        }`}
-                        style={{
-                          left: `${leftPct}%`,
-                          top: `${topPct}%`,
-                          width: `${widthPct}%`,
-                          // heightAuto (the default): no explicit height, so the
-                          // box grows to fit wrapped text instead of clipping it
-                          // — a bigger font or more text is never silently cut
-                          // off. Dragging a resize handle below sets an explicit
-                          // height and turns this off permanently for that box,
-                          // same as any ordinary text box.
-                          ...(layer.heightAuto ? {} : { height: `${heightPct}%` }),
-                          fontSize: `calc(${fontSizeCqw} * 1cqw)`,
-                        }}
-                        // contentEditable while editing, not React `children` —
-                        // React thinks this element's children is just `false`
-                        // (see below) so it never touches the live DOM text via
-                        // reconciliation, which is what would reset the cursor
-                        // to the start on every keystroke. The ref sets the
-                        // starting text once; typing after that is the browser's
-                        // own contentEditable behavior, read back via onInput.
-                        contentEditable={isEditing}
-                        suppressContentEditableWarning
-                        ref={
-                          isEditing
-                            ? (el) => {
-                                // needsEditFocus (set at the two places that start
-                                // an edit session) catches the case textContent
-                                // !== label can't: a brand-new *blank* box, where
-                                // both start at '' and look already "in sync".
-                                if (el && (el.textContent !== layer.label || needsEditFocus.current)) {
-                                  el.textContent = layer.label
-                                  el.focus()
-                                  needsEditFocus.current = false
-                                  // Select the existing text so the first
-                                  // keystroke replaces it, like renaming a
-                                  // layer in most design tools. Best-effort:
-                                  // a stale Range/Selection from a previous
-                                  // edit session can throw here in some
-                                  // environments — editing still works fine
-                                  // without the selection, so don't let it
-                                  // block entering edit mode.
-                                  try {
-                                    const range = document.createRange()
-                                    range.selectNodeContents(el)
-                                    const selection = window.getSelection()
-                                    selection?.removeAllRanges()
-                                    selection?.addRange(range)
-                                  } catch {
-                                    // ignore — select-all-on-edit is a convenience, not a requirement
+                      {layer.type === 'image' ? (
+                        <div
+                          className={`absolute touch-none cursor-grab active:cursor-grabbing ${
+                            isSelected ? 'border border-blue-500' : 'border border-transparent'
+                          }`}
+                          style={{ left: `${leftPct}%`, top: `${topPct}%`, width: `${widthPct}%`, height: `${heightPct}%` }}
+                          onPointerDown={(e) => handlePointerDown(e, layer)}
+                          onPointerMove={handlePointerMove}
+                          onPointerUp={handlePointerUp}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <img src={layer.src} alt="" draggable={false} className="h-full w-full select-none object-cover" />
+                          {isSelected &&
+                            RESIZE_HANDLES.map((handle) => (
+                              <div
+                                key={handle.key}
+                                className="absolute h-2.5 w-2.5 touch-none border border-blue-500 bg-white"
+                                style={{ top: handle.top, left: handle.left, transform: 'translate(-50%, -50%)', cursor: handle.cursor }}
+                                onPointerDown={(e) => handleResizePointerDown(e, layer, handle.xSign, handle.ySign)}
+                                onPointerMove={handleResizePointerMove}
+                                onPointerUp={handleResizePointerUp}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            ))}
+                        </div>
+                      ) : (
+                        <div
+                          // Forces a full remount (not a diff) when entering/exiting
+                          // edit mode. While editing, the browser mutates this
+                          // element's real DOM text via native contentEditable
+                          // typing — React never tracks those changes (children
+                          // renders as `false` below). Reconciling back into
+                          // React-owned `{layer.label}` children afterward would
+                          // make React try to diff against DOM it doesn't
+                          // recognize, which can throw. A key change sidesteps
+                          // that entirely: React just discards the old subtree
+                          // and mounts a fresh one.
+                          key={isEditing ? `${layer.id}-edit` : `${layer.id}-view`}
+                          // White fill + black outline (classic meme-text look) —
+                          // legible regardless of what's underneath. Stroke width
+                          // in em so it scales with this box's own font-size
+                          // (itself already scaled to the image via cqw, see
+                          // fontSize below) without a second scaling calc.
+                          // paint-order draws the stroke behind the fill so it
+                          // doesn't eat into/thin the white letterforms.
+                          className={`absolute p-1 text-center font-bold text-white outline-none [-webkit-text-stroke:0.24em_black] [paint-order:stroke_fill] ${
+                            isSelected ? 'border border-blue-500' : 'border border-transparent'
+                          } ${isEditing ? 'cursor-text' : 'cursor-grab touch-none active:cursor-grabbing'} ${
+                            isSelected && !isEditing ? 'hover:underline hover:decoration-blue-500' : ''
+                          }`}
+                          style={{
+                            left: `${leftPct}%`,
+                            top: `${topPct}%`,
+                            width: `${widthPct}%`,
+                            // heightAuto (the default): no explicit height, so the
+                            // box grows to fit wrapped text instead of clipping it
+                            // — a bigger font or more text is never silently cut
+                            // off. Dragging a resize handle below sets an explicit
+                            // height and turns this off permanently for that box,
+                            // same as any ordinary text box.
+                            ...(layer.heightAuto ? {} : { height: `${heightPct}%` }),
+                            fontSize: `calc(${(layer.fontSize / activeCanvas.width) * 100} * 1cqw)`,
+                          }}
+                          // contentEditable while editing, not React `children` —
+                          // React thinks this element's children is just `false`
+                          // (see below) so it never touches the live DOM text via
+                          // reconciliation, which is what would reset the cursor
+                          // to the start on every keystroke. The ref sets the
+                          // starting text once; typing after that is the browser's
+                          // own contentEditable behavior, read back via onInput.
+                          contentEditable={isEditing}
+                          suppressContentEditableWarning
+                          ref={
+                            isEditing
+                              ? (el) => {
+                                  // needsEditFocus (set at the two places that start
+                                  // an edit session) catches the case textContent
+                                  // !== label can't: a brand-new *blank* box, where
+                                  // both start at '' and look already "in sync".
+                                  if (el && (el.textContent !== layer.label || needsEditFocus.current)) {
+                                    el.textContent = layer.label
+                                    el.focus()
+                                    needsEditFocus.current = false
+                                    // Select the existing text so the first
+                                    // keystroke replaces it, like renaming a
+                                    // layer in most design tools. Best-effort:
+                                    // a stale Range/Selection from a previous
+                                    // edit session can throw here in some
+                                    // environments — editing still works fine
+                                    // without the selection, so don't let it
+                                    // block entering edit mode.
+                                    try {
+                                      const range = document.createRange()
+                                      range.selectNodeContents(el)
+                                      const selection = window.getSelection()
+                                      selection?.removeAllRanges()
+                                      selection?.addRange(range)
+                                    } catch {
+                                      // ignore — select-all-on-edit is a convenience, not a requirement
+                                    }
                                   }
                                 }
-                              }
-                            : undefined
-                        }
-                        onPointerDown={(e) => handlePointerDown(e, layer)}
-                        onPointerMove={handlePointerMove}
-                        onPointerUp={handlePointerUp}
-                        onClick={(e) => e.stopPropagation()}
-                        onDoubleClick={(e) => handleDoubleClick(e, layer)}
-                        onInput={(e) => handleLabelInput(layer.id, e.currentTarget.textContent ?? '')}
-                        onBlur={handleLabelBlur}
-                        onKeyDown={(e) => handleLabelKeyDown(e, layer.id)}
-                      >
-                        {!isEditing && layer.label}
-                        {/* Hidden while editing: these render as children of
-                            the contentEditable box, and the browser's native
-                            editing engine can restructure/move child nodes
-                            during text selection — which then breaks React's
-                            own bookkeeping of them. Resizing mid-type isn't a
-                            real use case anyway; finish editing first. */}
-                        {isSelected &&
-                          !isEditing &&
-                          RESIZE_HANDLES.map((handle) => (
-                            <div
-                              key={handle.key}
-                              className="absolute h-2.5 w-2.5 touch-none border border-blue-500 bg-white"
-                              style={{ top: handle.top, left: handle.left, transform: 'translate(-50%, -50%)', cursor: handle.cursor }}
-                              onPointerDown={(e) => handleResizePointerDown(e, layer, handle.xSign, handle.ySign)}
-                              onPointerMove={handleResizePointerMove}
-                              onPointerUp={handleResizePointerUp}
-                              onClick={(e) => e.stopPropagation()}
-                            />
-                          ))}
-                      </div>
+                              : undefined
+                          }
+                          onPointerDown={(e) => handlePointerDown(e, layer)}
+                          onPointerMove={handlePointerMove}
+                          onPointerUp={handlePointerUp}
+                          onClick={(e) => e.stopPropagation()}
+                          onDoubleClick={(e) => handleDoubleClick(e, layer)}
+                          onInput={(e) => handleLabelInput(layer.id, e.currentTarget.textContent ?? '')}
+                          onBlur={handleLabelBlur}
+                          onKeyDown={(e) => handleLabelKeyDown(e, layer.id)}
+                        >
+                          {!isEditing && layer.label}
+                          {/* Hidden while editing: these render as children of
+                              the contentEditable box, and the browser's native
+                              editing engine can restructure/move child nodes
+                              during text selection — which then breaks React's
+                              own bookkeeping of them. Resizing mid-type isn't a
+                              real use case anyway; finish editing first. */}
+                          {isSelected &&
+                            !isEditing &&
+                            RESIZE_HANDLES.map((handle) => (
+                              <div
+                                key={handle.key}
+                                className="absolute h-2.5 w-2.5 touch-none border border-blue-500 bg-white"
+                                style={{ top: handle.top, left: handle.left, transform: 'translate(-50%, -50%)', cursor: handle.cursor }}
+                                onPointerDown={(e) => handleResizePointerDown(e, layer, handle.xSign, handle.ySign)}
+                                onPointerMove={handleResizePointerMove}
+                                onPointerUp={handleResizePointerUp}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            ))}
+                        </div>
+                      )}
 
                       {isSelected &&
                         propertyBarPos &&
@@ -863,8 +956,8 @@ export function EditorPage() {
                             onClick={(e) => e.stopPropagation()}
                           >
                             <PropertyBar
-                              fontSize={layer.fontSize}
-                              onChangeFontSize={(px) => handleChangeFontSize(layer.id, px)}
+                              fontSize={layer.type === 'text' ? layer.fontSize : undefined}
+                              onChangeFontSize={layer.type === 'text' ? (px) => handleChangeFontSize(layer.id, px) : undefined}
                               onDelete={() => handleDeleteLayer(layer.id)}
                             />
                           </div>,
@@ -873,6 +966,21 @@ export function EditorPage() {
                     </Fragment>
                   )
                 })}
+              </div>
+            )}
+            {source?.type === 'freeform' && activeCanvas && selectedFieldId === null && (
+              <div className="absolute inset-0">
+                {CANVAS_RESIZE_HANDLES.map((handle) => (
+                  <div
+                    key={handle.key}
+                    className="absolute z-10 h-2.5 w-2.5 touch-none border border-neutral-500 bg-white"
+                    style={{ top: handle.top, left: handle.left, transform: 'translate(-50%, -50%)', cursor: handle.cursor }}
+                    onPointerDown={(e) => handleCanvasResizePointerDown(e, handle.xSign, handle.ySign)}
+                    onPointerMove={handleCanvasResizePointerMove}
+                    onPointerUp={handleCanvasResizePointerUp}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ))}
               </div>
             )}
             {/* Shown on the blank canvas too (source === null), not just once
