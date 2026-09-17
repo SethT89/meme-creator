@@ -34,7 +34,10 @@ describe('renderCreationToBlob', () => {
       drawImage: (...args: unknown[]) => calls.push({ method: 'drawImage', args }),
       strokeText: (...args: unknown[]) => calls.push({ method: 'strokeText', args }),
       fillText: (...args: unknown[]) => calls.push({ method: 'fillText', args }),
-      measureText: (text: string) => ({ width: text.length * 10 }),
+      // Fixed ascent/descent (not derived from fontSize) so a baseline-y
+      // comparison across two calls isolates exactly the padding term —
+      // see the scale test below.
+      measureText: (text: string) => ({ width: text.length * 10, fontBoundingBoxAscent: 16, fontBoundingBoxDescent: 4 }),
       font: '',
       textAlign: '',
       textBaseline: '',
@@ -45,15 +48,19 @@ describe('renderCreationToBlob', () => {
     return { ctx, calls }
   }
 
-  it("draws the background image first, then each layer's stroke before its fill", async () => {
-    const { ctx, calls } = mockContext()
-    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx as unknown as CanvasRenderingContext2D)
+  function stubCanvas(ctx: unknown) {
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx as CanvasRenderingContext2D)
     vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (
       this: HTMLCanvasElement,
       cb: BlobCallback,
     ) {
       cb(new Blob(['fake'], { type: 'image/png' }))
     })
+  }
+
+  it("draws the background image first, then each layer's stroke before its fill", async () => {
+    const { ctx, calls } = mockContext()
+    stubCanvas(ctx)
 
     const image = document.createElement('img')
     const templateRow = { image_width: 600, image_height: 908 }
@@ -80,5 +87,28 @@ describe('renderCreationToBlob', () => {
     )
 
     vi.restoreAllMocks()
+  })
+
+  it('scales the fixed on-screen padding to match the real-vs-displayed image size ratio', async () => {
+    const templateRow = { image_width: 600, image_height: 908 }
+    const layers: Layer[] = [{ id: 'f1', label: 'hi', x: 10, y: 100, width: 200, height: 50, fontSize: 20, heightAuto: true }]
+
+    async function baselineYAt(displayedWidth: number) {
+      const { ctx, calls } = mockContext()
+      stubCanvas(ctx)
+      const image = document.createElement('img')
+      image.width = displayedWidth
+      await renderCreationToBlob(image, templateRow, layers)
+      vi.restoreAllMocks()
+      return calls.find((c) => c.method === 'fillText')!.args[2] as number
+    }
+
+    const yAtActualSize = await baselineYAt(600) // scale = 600/600 = 1
+    const yAtHalfSize = await baselineYAt(300) // scale = 600/300 = 2
+
+    // Only the padding term (4px * scale) should move — the font-metric
+    // (ascent/half-leading) term is already in real-resolution units and
+    // doesn't depend on how zoomed in/out the on-screen preview was.
+    expect(yAtHalfSize - yAtActualSize).toBeCloseTo(4 * (2 - 1), 5)
   })
 })
