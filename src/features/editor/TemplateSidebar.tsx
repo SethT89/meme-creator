@@ -37,7 +37,12 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
         Search All Memes
       </button>
 
-      {/* min-h-0 flex-1 alone doesn't get this div a real internal
+      {/* pr-3 leaves a gutter to the right of the cards for the scrollbar to
+          live in — the cards are w-full, so without it a scrollbar (overlay
+          ones on macOS, or a classic one that appears) sits on top of the
+          card text. The column's own width is unchanged, so the cards are
+          12px narrower rather than the canvas losing room.
+          min-h-0 flex-1 alone doesn't get this div a real internal
           scrollbar here — the app's root uses min-h-screen (a floor, not a
           cap), and a flex container sized that way asks each descendant for
           its own natural/max-content size when computing its own height,
@@ -57,7 +62,7 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
           resized to fit more in view — this scrolls instead, at a fixed
           card size. Not applied below sm: the mobile drawer is a fixed
           h-full overlay already, not subject to this. */}
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto sm:max-h-[calc(100vh-238px)]">
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-3 sm:max-h-[calc(100vh-238px)]">
         {templates.map((t) => (
           <button
             key={t.id}

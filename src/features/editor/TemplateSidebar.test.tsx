@@ -106,4 +106,13 @@ describe('TemplateSidebar', () => {
     const drakeButton = await screen.findByRole('button', { name: 'Drake' })
     expect(drakeButton).toHaveTextContent(/^Drake$/)
   })
+
+  it("leaves a gutter to the right of the cards inside the scroll area, so the scrollbar doesn't sit on top of them", async () => {
+    renderWithQuery(<TemplateSidebar selectedTemplateId={undefined} onSelectTemplate={vi.fn()} />)
+    const card = await screen.findByRole('button', { name: 'Two Buttons' })
+
+    const scrollArea = card.parentElement as HTMLElement
+    expect(scrollArea).toHaveClass('overflow-y-auto') // the element that owns the scrollbar
+    expect(scrollArea).toHaveClass('pr-3')
+  })
 })
