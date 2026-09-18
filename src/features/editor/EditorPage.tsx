@@ -1096,7 +1096,23 @@ export function EditorPage() {
                                 src={layer.src}
                                 alt=""
                                 draggable={false}
-                                className="absolute select-none"
+                                // max-w-none overrides Tailwind Preflight's
+                                // global `img { max-width: 100% }` reset —
+                                // without it, the browser silently clamps
+                                // the inline width % below back down to 100%
+                                // any time a crop needs this image rendered
+                                // WIDER than its box (i.e. any horizontal
+                                // crop at all), which is exactly what
+                                // happened: the analogous max-height rule
+                                // doesn't exist by default, so vertical
+                                // crops worked while horizontal ones (and
+                                // therefore corners too) silently collapsed
+                                // back to 100% width and never covered the
+                                // frame — confirmed live via getComputedStyle
+                                // showing computedWidth clamped to the
+                                // wrapper's own width despite a much larger
+                                // inline width.
+                                className="absolute max-w-none select-none"
                                 // Renders the image larger than this box by
                                 // exactly 1/cropWidth and 1/cropHeight, then
                                 // shifts it up/left so the cropped region
