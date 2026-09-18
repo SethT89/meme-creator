@@ -798,6 +798,21 @@ describe('EditorPage', () => {
       expect(screen.queryByText(/size:/i)).not.toBeInTheDocument()
     })
 
+    it('selecting an image layer shows only the 4 corner resize handles, never the edge midpoints', async () => {
+      renderEditor()
+      await screen.findByRole('button', { name: 'Two Buttons' })
+      await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+      const img = await selectImageFile().then(() => screen.findByAltText(''))
+
+      await userEvent.click(img)
+
+      // Layer-resize handles are the blue ones — distinct from the gray
+      // canvas-resize handles, which aren't shown here since selecting a
+      // layer exits Adjust Canvas mode.
+      expect(document.querySelectorAll('.border-blue-500.bg-white')).toHaveLength(4)
+    })
+
     it('canvas resize handles are hidden by default after uploading, and only appear once Adjust Canvas is chosen from the menu', async () => {
       renderEditor()
       await screen.findByRole('button', { name: 'Two Buttons' })

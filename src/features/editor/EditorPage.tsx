@@ -20,7 +20,15 @@ import { SaveDialog } from './SaveDialog'
 import { useCreation, useCreateCreation, useCreations, useUpdateCreation } from '../../lib/queries/creations'
 import { useTemplates, useTemplateFields } from '../../lib/queries/templates'
 import { nextAvailableName } from '../../lib/creationNaming'
-import { layersFromCanvasData, applyDragDelta, applyResizeDelta, createBlankTextLayer, createImageLayer, MIN_CANVAS_SIZE } from '../../lib/layers'
+import {
+  layersFromCanvasData,
+  applyDragDelta,
+  applyResizeDelta,
+  applyAspectLockedResizeDelta,
+  createBlankTextLayer,
+  createImageLayer,
+  MIN_CANVAS_SIZE,
+} from '../../lib/layers'
 import type { Layer, TextLayer, ResizeSign } from '../../lib/layers'
 import { renderCreationToBlob } from '../../lib/exportCanvas'
 import { canShareFile, downloadBlob, isMobileOrTabletDevice, sanitizeFilename, shareFile } from '../../lib/exportDelivery'
@@ -49,6 +57,14 @@ const RESIZE_HANDLES: { key: string; top: string; left: string; cursor: string; 
   { key: 'bm', top: '100%', left: '50%', cursor: 'ns-resize', xSign: 0, ySign: 1 },
   { key: 'br', top: '100%', left: '100%', cursor: 'nwse-resize', xSign: 1, ySign: 1 },
 ]
+
+// Image layers only ever get the 4 corner handles — an image renders via
+// object-cover, so letting it resize on just one axis (like a text box can)
+// would force it to crop to fill the resulting mismatched box shape instead
+// of just scaling. Corner drags always scale both dimensions together (see
+// applyAspectLockedResizeDelta), so a corner handle is the only one that
+// makes sense for an image.
+const CORNER_RESIZE_HANDLES = RESIZE_HANDLES.filter((h) => h.xSign !== 0 && h.ySign !== 0)
 
 // Canvas-resize handles — right edge, bottom edge, bottom-right corner only.
 // See the design doc's scope note: growing/shrinking from these three never
@@ -556,10 +572,13 @@ export function EditorPage() {
     const deltaXPx = e.clientX - resize.startX
     const deltaYPx = e.clientY - resize.startY
     const displayScale = imgRef.current.getBoundingClientRect().width / activeCanvas.width
+    const { layerStart } = resize
     setLayers((prev) =>
       prev.map((l) =>
         l.id === resize.id
-          ? applyResizeDelta(resize.layerStart, deltaXPx, deltaYPx, displayScale, resize.xSign, resize.ySign)
+          ? layerStart.type === 'image'
+            ? applyAspectLockedResizeDelta(layerStart, deltaXPx, deltaYPx, displayScale, resize.xSign, resize.ySign)
+            : applyResizeDelta(layerStart, deltaXPx, deltaYPx, displayScale, resize.xSign, resize.ySign)
           : l,
       ),
     )
@@ -898,7 +917,7 @@ export function EditorPage() {
                         >
                           <img src={layer.src} alt="" draggable={false} className="h-full w-full select-none object-cover" />
                           {isSelected &&
-                            RESIZE_HANDLES.map((handle) => (
+                            CORNER_RESIZE_HANDLES.map((handle) => (
                               <div
                                 key={handle.key}
                                 className="absolute h-2.5 w-2.5 touch-none border border-blue-500 bg-white"

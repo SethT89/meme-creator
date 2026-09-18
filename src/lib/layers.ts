@@ -202,3 +202,36 @@ export function applyResizeDelta<T extends Layer>(
 
   return (layer.type === 'text' ? { ...layer, x, y, width, height, heightAuto: heightAuto ?? true } : { ...layer, x, y, width, height }) as T
 }
+
+// Image-layer resize: unlike applyResizeDelta above (which lets width and
+// height change independently — fine for a text box, which just reflows),
+// an image renders via object-cover, so an independently-stretched box
+// would force it to crop to fill the mismatched shape. Only ever called
+// with a corner sign (both xSign and ySign nonzero — see CORNER_RESIZE_HANDLES
+// in EditorPage.tsx), so this always scales width and height together by the
+// same factor, keeping the image's own aspect ratio intact — a pure resize,
+// never a crop. The scale factor is driven by whichever axis moved further
+// (proportionally), so a mostly-horizontal or mostly-vertical drag both feel
+// like dragging that corner naturally, not like fighting a hidden diagonal.
+export function applyAspectLockedResizeDelta(
+  layer: ImageLayer,
+  deltaXPx: number,
+  deltaYPx: number,
+  displayScale: number,
+  xSign: ResizeSign,
+  ySign: ResizeSign,
+): ImageLayer {
+  const deltaX = (deltaXPx / displayScale) * xSign
+  const deltaY = (deltaYPx / displayScale) * ySign
+  const scaleFromWidth = (layer.width + deltaX) / layer.width
+  const scaleFromHeight = (layer.height + deltaY) / layer.height
+  const rawScale = Math.abs(scaleFromWidth - 1) > Math.abs(scaleFromHeight - 1) ? scaleFromWidth : scaleFromHeight
+  const scale = Math.max(rawScale, MIN_LAYER_SIZE / layer.width, MIN_LAYER_SIZE / layer.height)
+
+  const width = layer.width * scale
+  const height = layer.height * scale
+  const x = xSign === -1 ? layer.x + layer.width - width : layer.x
+  const y = ySign === -1 ? layer.y + layer.height - height : layer.y
+
+  return { ...layer, x, y, width, height }
+}

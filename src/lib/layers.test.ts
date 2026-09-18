@@ -9,11 +9,12 @@ import {
   layersFromCanvasData,
   applyDragDelta,
   applyResizeDelta,
+  applyAspectLockedResizeDelta,
   createBlankTextLayer,
   createImageLayer,
   MIN_LAYER_SIZE,
 } from './layers'
-import type { Layer } from './layers'
+import type { Layer, ImageLayer } from './layers'
 
 describe('SIZE_PRESETS', () => {
   it('defines five presets in ascending px order', () => {
@@ -250,5 +251,38 @@ describe('applyResizeDelta', () => {
   it('clamps height to MIN_LAYER_SIZE when shrinking past the minimum from the bottom edge', () => {
     const resized = applyResizeDelta(layer, 0, -10000, 1, 0, 1)
     expect(resized.height).toBe(MIN_LAYER_SIZE)
+  })
+})
+
+describe('applyAspectLockedResizeDelta', () => {
+  // 2:1 aspect ratio — every assertion below checks this ratio is preserved.
+  const imageLayer: ImageLayer = { type: 'image', id: 'img1', src: 'https://example.com/a.png', x: 100, y: 100, width: 200, height: 100 }
+
+  it('bottom-right: scales both dimensions by whichever axis moved further (here, width), anchored on the opposite corner', () => {
+    const resized = applyAspectLockedResizeDelta(imageLayer, 100, 10, 1, 1, 1)
+    expect(resized.width).toBe(300) // scale 1.5, driven by width's bigger proportional change
+    expect(resized.height).toBe(150)
+    expect(resized.x).toBe(100)
+    expect(resized.y).toBe(100)
+  })
+
+  it('top-left: scales both dimensions together, anchored on the bottom-right corner', () => {
+    const resized = applyAspectLockedResizeDelta(imageLayer, -50, -20, 1, -1, -1)
+    expect(resized.width).toBe(250) // scale 1.25
+    expect(resized.height).toBe(125)
+    expect(resized.x).toBe(50) // (100+200) - 250, right edge stays at 300
+    expect(resized.y).toBe(75) // (100+100) - 125, bottom edge stays at 200
+  })
+
+  it('never distorts the aspect ratio, regardless of how disproportionate the drag is', () => {
+    const resized = applyAspectLockedResizeDelta(imageLayer, 10, 500, 1, 1, 1)
+    expect(resized.width / resized.height).toBeCloseTo(imageLayer.width / imageLayer.height)
+  })
+
+  it('clamps scaling down so neither dimension shrinks past MIN_LAYER_SIZE', () => {
+    const resized = applyAspectLockedResizeDelta(imageLayer, -10000, 0, 1, 1, 1)
+    // Height (the smaller dimension at this 2:1 ratio) hits the floor first.
+    expect(resized.height).toBe(MIN_LAYER_SIZE)
+    expect(resized.width).toBeGreaterThanOrEqual(MIN_LAYER_SIZE)
   })
 })
