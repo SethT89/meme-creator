@@ -21,9 +21,63 @@ export interface TextLayer extends BaseLayer {
 export interface ImageLayer extends BaseLayer {
   type: 'image'
   src: string
+  // The source image's real pixel dimensions — set once from the upload
+  // (or, for the very first canvas-establishing image, equal to width/
+  // height above). Needed to lay out the crop overlay in real image
+  // pixels; cropX/Y/Width/Height below are fractions of these, not of
+  // this layer's own on-canvas width/height.
+  naturalWidth: number
+  naturalHeight: number
+  // Crop rectangle, as fractions (0-1) of naturalWidth/naturalHeight.
+  // Undefined means "the whole image" — every image layer starts this way
+  // (see getCropRect below); only set once the user crops via
+  // double-click. This layer's own width/height always stays in the same
+  // aspect ratio as this rectangle — see applyCropToLayer.
+  cropX?: number
+  cropY?: number
+  cropWidth?: number
+  cropHeight?: number
 }
 
 export type Layer = TextLayer | ImageLayer
+
+// Effective crop rectangle for a layer, as fractions of its natural size —
+// resolves the "undefined means the whole image" default described above so
+// every call site gets concrete numbers rather than re-deriving them.
+export function getCropRect(layer: ImageLayer): { x: number; y: number; width: number; height: number } {
+  return {
+    x: layer.cropX ?? 0,
+    y: layer.cropY ?? 0,
+    width: layer.cropWidth ?? 1,
+    height: layer.cropHeight ?? 1,
+  }
+}
+
+// Applies a new crop rectangle (fractions of the layer's natural size,
+// clamped/produced by the crop overlay) to a layer. The layer's on-canvas
+// width always stays the same — only its height and vertical position
+// change, recentered on the box's previous vertical center so cropping
+// doesn't make it jump to hug one edge — and always resolves to exactly the
+// new crop rectangle's own aspect ratio, which is what lets the image keep
+// rendering distortion-free afterward (see the image layer's style in
+// EditorPage.tsx: it relies on the box's aspect ratio always matching the
+// crop rectangle's).
+export function applyCropToLayer(layer: ImageLayer, crop: { x: number; y: number; width: number; height: number }): ImageLayer {
+  const cropWidthPx = crop.width * layer.naturalWidth
+  const cropHeightPx = crop.height * layer.naturalHeight
+  const newAspect = cropWidthPx / cropHeightPx
+  const height = Math.max(MIN_LAYER_SIZE, layer.width / newAspect)
+  const centerY = layer.y + layer.height / 2
+  return {
+    ...layer,
+    cropX: crop.x,
+    cropY: crop.y,
+    cropWidth: crop.width,
+    cropHeight: crop.height,
+    height,
+    y: centerY - height / 2,
+  }
+}
 
 export const SIZE_PRESETS: { label: string; px: number }[] = [
   { label: 'Small', px: 24 },
@@ -107,7 +161,7 @@ export function createImageLayer(
   canvas?: { width: number; height: number },
 ): ImageLayer {
   if (!canvas) {
-    return { type: 'image', id: crypto.randomUUID(), src, x: 0, y: 0, width: naturalWidth, height: naturalHeight }
+    return { type: 'image', id: crypto.randomUUID(), src, naturalWidth, naturalHeight, x: 0, y: 0, width: naturalWidth, height: naturalHeight }
   }
   const scale = Math.min(1, (canvas.width * 0.6) / naturalWidth, (canvas.height * 0.6) / naturalHeight)
   const width = naturalWidth * scale
@@ -116,6 +170,8 @@ export function createImageLayer(
     type: 'image',
     id: crypto.randomUUID(),
     src,
+    naturalWidth,
+    naturalHeight,
     x: (canvas.width - width) / 2,
     y: (canvas.height - height) / 2,
     width,
@@ -162,6 +218,33 @@ export const MIN_CANVAS_SIZE = 100
 // 0 = that axis isn't controlled by this handle (midpoints only control one
 // axis; corners control both).
 export type ResizeSign = -1 | 0 | 1
+
+export interface ResizeHandle {
+  key: string
+  top: string
+  left: string
+  cursor: string
+  xSign: ResizeSign
+  ySign: ResizeSign
+}
+
+// The 8 resize handles: 4 corners (control both axes) and 4 edge midpoints
+// (control only their own axis). top/left as CSS percentages position each
+// handle on its box's own edge; translate(-50%,-50%) (applied by whoever
+// renders these) centers the handle dot on that edge/corner rather than
+// sitting fully inside or outside it. Shared between an ordinary layer's own
+// resize handles (EditorPage.tsx) and the crop overlay's selection
+// rectangle (ImageCropOverlay.tsx) — same 8 positions either way.
+export const RESIZE_HANDLES: ResizeHandle[] = [
+  { key: 'tl', top: '0%', left: '0%', cursor: 'nwse-resize', xSign: -1, ySign: -1 },
+  { key: 'tm', top: '0%', left: '50%', cursor: 'ns-resize', xSign: 0, ySign: -1 },
+  { key: 'tr', top: '0%', left: '100%', cursor: 'nesw-resize', xSign: 1, ySign: -1 },
+  { key: 'lm', top: '50%', left: '0%', cursor: 'ew-resize', xSign: -1, ySign: 0 },
+  { key: 'rm', top: '50%', left: '100%', cursor: 'ew-resize', xSign: 1, ySign: 0 },
+  { key: 'bl', top: '100%', left: '0%', cursor: 'nesw-resize', xSign: -1, ySign: 1 },
+  { key: 'bm', top: '100%', left: '50%', cursor: 'ns-resize', xSign: 0, ySign: 1 },
+  { key: 'br', top: '100%', left: '100%', cursor: 'nwse-resize', xSign: 1, ySign: 1 },
+]
 
 export function applyResizeDelta<T extends Layer>(
   layer: T,

@@ -12,6 +12,8 @@ import {
   applyAspectLockedResizeDelta,
   createBlankTextLayer,
   createImageLayer,
+  getCropRect,
+  applyCropToLayer,
   MIN_LAYER_SIZE,
 } from './layers'
 import type { Layer, ImageLayer } from './layers'
@@ -92,7 +94,17 @@ describe('createBlankTextLayer', () => {
 describe('createImageLayer', () => {
   it('with no canvas given, places the image at the origin at its native size — it is about to define the canvas', () => {
     const layer = createImageLayer('https://example.com/a.png', 800, 600)
-    expect(layer).toEqual({ type: 'image', id: layer.id, src: 'https://example.com/a.png', x: 0, y: 0, width: 800, height: 600 })
+    expect(layer).toEqual({
+      type: 'image',
+      id: layer.id,
+      src: 'https://example.com/a.png',
+      naturalWidth: 800,
+      naturalHeight: 600,
+      x: 0,
+      y: 0,
+      width: 800,
+      height: 600,
+    })
   })
 
   it('with a canvas given, scales the image down to fit within 60% of the canvas and centers it', () => {
@@ -181,7 +193,7 @@ describe('applyDragDelta', () => {
   })
 
   it('also moves an ImageLayer — the delta math only touches x/y/width/height, not the layer kind', () => {
-    const imageLayer: Layer = { type: 'image', id: 'img1', src: 'https://example.com/a.png', x: 100, y: 100, width: 200, height: 100 }
+    const imageLayer: Layer = { type: 'image', id: 'img1', src: 'https://example.com/a.png', naturalWidth: 200, naturalHeight: 100, x: 100, y: 100, width: 200, height: 100 }
     const moved = applyDragDelta(imageLayer, 50, 0, 0.5, 1000, 1000)
     expect(moved).toEqual({ ...imageLayer, x: 200 })
   })
@@ -256,7 +268,7 @@ describe('applyResizeDelta', () => {
 
 describe('applyAspectLockedResizeDelta', () => {
   // 2:1 aspect ratio — every assertion below checks this ratio is preserved.
-  const imageLayer: ImageLayer = { type: 'image', id: 'img1', src: 'https://example.com/a.png', x: 100, y: 100, width: 200, height: 100 }
+  const imageLayer: ImageLayer = { type: 'image', id: 'img1', src: 'https://example.com/a.png', naturalWidth: 200, naturalHeight: 100, x: 100, y: 100, width: 200, height: 100 }
 
   it('bottom-right: scales both dimensions by whichever axis moved further (here, width), anchored on the opposite corner', () => {
     const resized = applyAspectLockedResizeDelta(imageLayer, 100, 10, 1, 1, 1)
@@ -284,5 +296,67 @@ describe('applyAspectLockedResizeDelta', () => {
     // Height (the smaller dimension at this 2:1 ratio) hits the floor first.
     expect(resized.height).toBe(MIN_LAYER_SIZE)
     expect(resized.width).toBeGreaterThanOrEqual(MIN_LAYER_SIZE)
+  })
+})
+
+describe('getCropRect', () => {
+  it('defaults to the whole image when no crop fields are set', () => {
+    const layer: ImageLayer = { type: 'image', id: 'img1', src: 'https://example.com/a.png', naturalWidth: 800, naturalHeight: 600, x: 0, y: 0, width: 800, height: 600 }
+    expect(getCropRect(layer)).toEqual({ x: 0, y: 0, width: 1, height: 1 })
+  })
+
+  it('returns the crop fields already set on the layer', () => {
+    const layer: ImageLayer = {
+      type: 'image',
+      id: 'img1',
+      src: 'https://example.com/a.png',
+      naturalWidth: 800,
+      naturalHeight: 600,
+      x: 0,
+      y: 0,
+      width: 400,
+      height: 600,
+      cropX: 0.25,
+      cropY: 0.1,
+      cropWidth: 0.5,
+      cropHeight: 0.8,
+    }
+    expect(getCropRect(layer)).toEqual({ x: 0.25, y: 0.1, width: 0.5, height: 0.8 })
+  })
+})
+
+describe('applyCropToLayer', () => {
+  // 800x600 source image, current on-canvas box 400x300 (also 4:3, matching
+  // the uncropped image — a layer's box always starts in that ratio).
+  const layer: ImageLayer = { type: 'image', id: 'img1', src: 'https://example.com/a.png', naturalWidth: 800, naturalHeight: 600, x: 50, y: 50, width: 400, height: 300 }
+
+  it('stores the new crop fractions on the layer', () => {
+    const cropped = applyCropToLayer(layer, { x: 0.25, y: 0.25, width: 0.5, height: 0.5 })
+    expect(cropped.cropX).toBe(0.25)
+    expect(cropped.cropY).toBe(0.25)
+    expect(cropped.cropWidth).toBe(0.5)
+    expect(cropped.cropHeight).toBe(0.5)
+  })
+
+  it('keeps the box width unchanged and recomputes height to match the new crop aspect ratio', () => {
+    // Crop selects a square region (300x300px of the 800x600 source:
+    // 0.375*800=300, 0.5*600=300) — 1:1 aspect, versus the original 4:3 —
+    // so at the same 400px width, height must become 400px too.
+    const cropped = applyCropToLayer(layer, { x: 0, y: 0, width: 0.375, height: 0.5 })
+    expect(cropped.width).toBe(400)
+    expect(cropped.height).toBe(400)
+  })
+
+  it('recenters vertically on the previous center rather than jumping to hug the top edge', () => {
+    // Same square crop as above — height actually changes (300 -> 400),
+    // so this genuinely exercises recentering rather than a no-op.
+    const cropped = applyCropToLayer(layer, { x: 0, y: 0, width: 0.375, height: 0.5 })
+    const previousCenterY = layer.y + layer.height / 2
+    expect(cropped.y + cropped.height / 2).toBeCloseTo(previousCenterY)
+  })
+
+  it('leaves x unchanged', () => {
+    const cropped = applyCropToLayer(layer, { x: 0.1, y: 0.1, width: 0.3, height: 0.6 })
+    expect(cropped.x).toBe(layer.x)
   })
 })

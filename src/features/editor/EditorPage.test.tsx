@@ -813,6 +813,60 @@ describe('EditorPage', () => {
       expect(document.querySelectorAll('.border-blue-500.bg-white')).toHaveLength(4)
     })
 
+    it('double-clicking an image layer opens the crop overlay', async () => {
+      renderEditor()
+      await screen.findByRole('button', { name: 'Two Buttons' })
+      await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+      const img = await selectImageFile().then(() => screen.findByAltText(''))
+
+      await userEvent.dblClick(img)
+
+      expect(screen.getByRole('dialog', { name: 'Crop image' })).toBeInTheDocument()
+    })
+
+    it('canceling the crop overlay leaves the layer unchanged', async () => {
+      renderEditor()
+      await screen.findByRole('button', { name: 'Two Buttons' })
+      await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+      const img = await selectImageFile().then(() => screen.findByAltText(''))
+      const styleBefore = img.parentElement!.getAttribute('style')
+
+      await userEvent.dblClick(img)
+      await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+
+      expect(screen.queryByRole('dialog', { name: 'Crop image' })).not.toBeInTheDocument()
+      expect(img.parentElement!.getAttribute('style')).toBe(styleBefore)
+    })
+
+    it('applying a crop changes the layer aspect ratio (height %) while leaving its width % unchanged', async () => {
+      renderEditor()
+      await screen.findByRole('button', { name: 'Two Buttons' })
+      await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+      const img = await selectImageFile().then(() => screen.findByAltText(''))
+      // MockImage reports 400x300 — this first upload establishes the
+      // canvas at that exact size, so the layer starts at 100%/100%.
+      expect(img.parentElement!.style.width).toBe('100%')
+      expect(img.parentElement!.style.height).toBe('100%')
+
+      await userEvent.dblClick(img)
+      // Shrink the crop rectangle from its bottom-right corner to select a
+      // smaller, differently-proportioned region.
+      const handles = document.querySelectorAll('.border-neutral-900')
+      const brHandle = handles[handles.length - 1]
+      fireEvent.pointerDown(brHandle, { clientX: 0, clientY: 0 })
+      fireEvent.pointerMove(brHandle, { clientX: -100, clientY: -50 })
+      fireEvent.pointerUp(brHandle)
+      await userEvent.click(screen.getByRole('button', { name: 'Apply Crop' }))
+
+      expect(screen.queryByRole('dialog', { name: 'Crop image' })).not.toBeInTheDocument()
+      const croppedImg = await screen.findByAltText('')
+      expect(croppedImg.parentElement!.style.width).toBe('100%') // box width never changes on crop
+      expect(croppedImg.parentElement!.style.height).not.toBe('100%') // height recomputed to the new aspect
+    })
+
     it('canvas resize handles are hidden by default after uploading, and only appear once Adjust Canvas is chosen from the menu', async () => {
       renderEditor()
       await screen.findByRole('button', { name: 'Two Buttons' })

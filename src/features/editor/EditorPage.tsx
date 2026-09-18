@@ -25,15 +25,19 @@ import {
   applyDragDelta,
   applyResizeDelta,
   applyAspectLockedResizeDelta,
+  applyCropToLayer,
   createBlankTextLayer,
   createImageLayer,
+  getCropRect,
+  RESIZE_HANDLES,
   MIN_CANVAS_SIZE,
 } from '../../lib/layers'
-import type { Layer, TextLayer, ResizeSign } from '../../lib/layers'
+import type { Layer, TextLayer, ImageLayer, ResizeSign } from '../../lib/layers'
 import { renderCreationToBlob } from '../../lib/exportCanvas'
 import { canShareFile, downloadBlob, isMobileOrTabletDevice, sanitizeFilename, shareFile } from '../../lib/exportDelivery'
 import { prepareImageForUpload } from '../../lib/imageUpload'
 import { supabase } from '../../lib/supabase'
+import { ImageCropOverlay } from './ImageCropOverlay'
 import type { Json } from '../../types/database'
 
 type Source =
@@ -42,21 +46,6 @@ type Source =
   | null
 type SavedMeta = { id: string; name: string; tags: string[] } | null
 type FreeformCanvasData = { layers?: Layer[]; canvasWidth?: number; canvasHeight?: number }
-
-// The 8 resize handles: 4 corners (control both axes) and 4 edge midpoints
-// (control only their own axis). top/left as CSS percentages position each
-// handle on the box's own edge; translate(-50%,-50%) centers the handle dot
-// on that edge/corner rather than sitting fully inside or outside it.
-const RESIZE_HANDLES: { key: string; top: string; left: string; cursor: string; xSign: ResizeSign; ySign: ResizeSign }[] = [
-  { key: 'tl', top: '0%', left: '0%', cursor: 'nwse-resize', xSign: -1, ySign: -1 },
-  { key: 'tm', top: '0%', left: '50%', cursor: 'ns-resize', xSign: 0, ySign: -1 },
-  { key: 'tr', top: '0%', left: '100%', cursor: 'nesw-resize', xSign: 1, ySign: -1 },
-  { key: 'lm', top: '50%', left: '0%', cursor: 'ew-resize', xSign: -1, ySign: 0 },
-  { key: 'rm', top: '50%', left: '100%', cursor: 'ew-resize', xSign: 1, ySign: 0 },
-  { key: 'bl', top: '100%', left: '0%', cursor: 'nesw-resize', xSign: -1, ySign: 1 },
-  { key: 'bm', top: '100%', left: '50%', cursor: 'ns-resize', xSign: 0, ySign: 1 },
-  { key: 'br', top: '100%', left: '100%', cursor: 'nwse-resize', xSign: 1, ySign: 1 },
-]
 
 // Image layers only ever get the 4 corner handles — an image renders via
 // object-cover, so letting it resize on just one axis (like a text box can)
@@ -96,6 +85,9 @@ export function EditorPage() {
   // whenever nothing else happens to be selected, so they don't appear
   // unannounced immediately after every upload.
   const [adjustingCanvas, setAdjustingCanvas] = useState(false)
+  // Set by double-clicking an image layer — while non-null, ImageCropOverlay
+  // renders full-screen for that one layer, covering everything else.
+  const [cropTargetId, setCropTargetId] = useState<string | null>(null)
   const editStartLabel = useRef('')
   // Set (alongside editStartLabel) at every call site that starts a new edit
   // session, consumed by the contentEditable ref callback below. Needed
@@ -315,6 +307,7 @@ export function EditorPage() {
     setSelectedFieldId(null)
     setEditingLayerId(null)
     setAdjustingCanvas(false)
+    setCropTargetId(null)
     setLayers([])
     setLayersSeededFor(undefined)
     baselineLayersRef.current = []
@@ -327,6 +320,7 @@ export function EditorPage() {
     setSelectedFieldId(null)
     setEditingLayerId(null)
     setAdjustingCanvas(false)
+    setCropTargetId(null)
     setLayers([])
     setLayersSeededFor(undefined)
     baselineLayersRef.current = []
@@ -470,6 +464,7 @@ export function EditorPage() {
         setSelectedFieldId(null)
         setEditingLayerId(null)
         setAdjustingCanvas(false)
+        setCropTargetId(null)
         setLayers([newLayer])
         setLayersSeededFor(undefined)
         // The freshly-created canvas's starting point already includes this
@@ -632,6 +627,15 @@ export function EditorPage() {
   function handleDeleteLayer(layerId: string) {
     setLayers((prev) => prev.filter((l) => l.id !== layerId))
     setSelectedFieldId(null)
+  }
+
+  const cropTargetLayer = layers.find((l): l is ImageLayer => l.id === cropTargetId && l.type === 'image')
+
+  function handleCropConfirm(crop: { x: number; y: number; width: number; height: number }) {
+    if (!cropTargetLayer) return
+    const targetId = cropTargetLayer.id
+    setLayers((prev) => prev.map((l) => (l.id === targetId && l.type === 'image' ? applyCropToLayer(l, crop) : l)))
+    setCropTargetId(null)
   }
 
   const defaultName =
@@ -906,7 +910,11 @@ export function EditorPage() {
                     <Fragment key={layer.id}>
                       {layer.type === 'image' ? (
                         <div
-                          className={`absolute touch-none cursor-grab active:cursor-grabbing ${
+                          // overflow-hidden matters once a crop is applied:
+                          // the <img> below then renders larger than this
+                          // box (see its own style comment) so only the
+                          // cropped region shows, not the full image.
+                          className={`absolute touch-none cursor-grab overflow-hidden active:cursor-grabbing ${
                             isSelected ? 'border border-blue-500' : 'border border-transparent'
                           }`}
                           style={{ left: `${leftPct}%`, top: `${topPct}%`, width: `${widthPct}%`, height: `${heightPct}%` }}
@@ -914,8 +922,36 @@ export function EditorPage() {
                           onPointerMove={handlePointerMove}
                           onPointerUp={handlePointerUp}
                           onClick={(e) => e.stopPropagation()}
+                          onDoubleClick={(e) => {
+                            e.stopPropagation()
+                            setCropTargetId(layer.id)
+                          }}
                         >
-                          <img src={layer.src} alt="" draggable={false} className="h-full w-full select-none object-cover" />
+                          {(() => {
+                            const crop = getCropRect(layer)
+                            return (
+                              <img
+                                src={layer.src}
+                                alt=""
+                                draggable={false}
+                                className="absolute select-none"
+                                // Renders the image larger than this box by
+                                // exactly 1/cropWidth and 1/cropHeight, then
+                                // shifts it up/left so the cropped region
+                                // lands at (0,0) — the overflow-hidden
+                                // parent clips everything else. With no crop
+                                // (the default 0,0,1,1) this reduces to
+                                // 100%/100%/0/0, i.e. today's plain
+                                // fill-the-box behavior.
+                                style={{
+                                  width: `${(1 / crop.width) * 100}%`,
+                                  height: `${(1 / crop.height) * 100}%`,
+                                  left: `${-(crop.x / crop.width) * 100}%`,
+                                  top: `${-(crop.y / crop.height) * 100}%`,
+                                }}
+                              />
+                            )
+                          })()}
                           {isSelected &&
                             CORNER_RESIZE_HANDLES.map((handle) => (
                               <div
@@ -1137,6 +1173,8 @@ export function EditorPage() {
           {toast.message}
         </div>
       )}
+
+      {cropTargetLayer && <ImageCropOverlay layer={cropTargetLayer} onConfirm={handleCropConfirm} onCancel={() => setCropTargetId(null)} />}
     </div>
   )
 }
