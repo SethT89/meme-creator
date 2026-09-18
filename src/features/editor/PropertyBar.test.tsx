@@ -71,10 +71,11 @@ describe('PropertyBar', () => {
     expect(onDelete).toHaveBeenCalled()
   })
 
-  it('renders without Font/Size controls when fontSize is not provided (an image layer), but still shows Delete', () => {
+  it('renders without Font/Size/Color controls when fontSize is not provided (an image layer), but still shows Delete', () => {
     render(<PropertyBar onDelete={() => {}} />)
     expect(screen.queryByText('Font')).not.toBeInTheDocument()
     expect(screen.queryByText(/size:/i)).not.toBeInTheDocument()
+    expect(screen.queryByText('Color')).not.toBeInTheDocument()
     expect(screen.getByText('Delete')).toBeInTheDocument()
   })
 
@@ -85,5 +86,26 @@ describe('PropertyBar', () => {
     await userEvent.click(screen.getByText('Delete'))
 
     expect(onDelete).toHaveBeenCalled()
+  })
+
+  it('shows Color alongside Font/Size for a text layer', () => {
+    render(<PropertyBar fontSize={36} onChangeFontSize={() => {}} onDelete={() => {}} />)
+    expect(screen.getByText('Color')).toBeInTheDocument()
+  })
+
+  it('shows no Crop button when onCrop is not provided (a text layer)', () => {
+    render(<PropertyBar fontSize={36} onChangeFontSize={() => {}} onDelete={() => {}} />)
+    expect(screen.queryByText('Crop')).not.toBeInTheDocument()
+  })
+
+  it('shows a Crop button when onCrop is provided (an image layer), and clicking it calls onCrop', async () => {
+    const onCrop = vi.fn()
+    render(<PropertyBar onCrop={onCrop} onDelete={() => {}} />)
+
+    const cropButton = screen.getByText('Crop')
+    expect(cropButton).toBeInTheDocument()
+    await userEvent.click(cropButton)
+
+    expect(onCrop).toHaveBeenCalled()
   })
 })

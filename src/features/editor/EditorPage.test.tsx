@@ -785,7 +785,7 @@ describe('EditorPage', () => {
       expect(document.querySelectorAll('[contenteditable="true"]')).toHaveLength(0)
     })
 
-    it('selecting an image layer shows Delete in the property bar but no Font/Size control', async () => {
+    it('selecting an image layer shows Delete and Crop in the property bar but no Font/Size/Color control', async () => {
       renderEditor()
       await screen.findByRole('button', { name: 'Two Buttons' })
       await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
@@ -795,7 +795,23 @@ describe('EditorPage', () => {
       await userEvent.click(img)
 
       expect(screen.getByText('Delete')).toBeInTheDocument()
+      expect(screen.getByText('Crop')).toBeInTheDocument()
       expect(screen.queryByText(/size:/i)).not.toBeInTheDocument()
+      expect(screen.queryByText('Color')).not.toBeInTheDocument()
+    })
+
+    it('clicking Crop in the property bar enters crop mode, same as double-clicking the image', async () => {
+      renderEditor()
+      await screen.findByRole('button', { name: 'Two Buttons' })
+      await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+      const img = await selectImageFile().then(() => screen.findByAltText(''))
+      await userEvent.click(img)
+
+      await userEvent.click(screen.getByText('Crop'))
+
+      expect(img.parentElement).toHaveClass('border-dashed')
+      expect(document.querySelectorAll('.border-blue-500.bg-white')).toHaveLength(8)
     })
 
     it('selecting an image layer shows only the 4 corner resize handles, never the edge midpoints', async () => {

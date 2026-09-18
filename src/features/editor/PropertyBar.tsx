@@ -3,13 +3,17 @@ import { SIZE_PRESETS, clampFontSize, sizeLabel } from '../../lib/layers'
 
 interface PropertyBarProps {
   // Present for a text layer, omitted for an image layer — the Font/Size
-  // section only renders when both are given.
+  // (and Color, which only makes sense alongside text) section only
+  // renders when both are given.
   fontSize?: number
   onChangeFontSize?: (px: number) => void
+  // Present for an image layer, omitted for a text layer — the Crop
+  // button only renders when given.
+  onCrop?: () => void
   onDelete: () => void
 }
 
-export function PropertyBar({ fontSize, onChangeFontSize, onDelete }: PropertyBarProps) {
+export function PropertyBar({ fontSize, onChangeFontSize, onCrop, onDelete }: PropertyBarProps) {
   const [panelOpen, setPanelOpen] = useState(false)
 
   function applyCustomSize(raw: string) {
@@ -78,12 +82,20 @@ export function PropertyBar({ fontSize, onChangeFontSize, onDelete }: PropertyBa
               </div>
             )}
           </div>
+          <span className="rounded-full px-2 py-1 text-xs">Color</span>
           <div className="h-4 w-px bg-neutral-700" />
         </>
       )}
 
-      <span className="rounded-full px-2 py-1 text-xs">Color</span>
-      <div className="h-4 w-px bg-neutral-700" />
+      {onCrop && (
+        <>
+          <button type="button" className="rounded-full px-2 py-1 text-xs" onClick={onCrop}>
+            Crop
+          </button>
+          <div className="h-4 w-px bg-neutral-700" />
+        </>
+      )}
+
       <span className="rounded-full px-2 py-1 text-xs">⬆ Front</span>
       <div className="h-4 w-px bg-neutral-700" />
       <button type="button" className="rounded-full px-2 py-1 text-xs text-red-400" onClick={onDelete}>

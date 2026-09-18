@@ -699,8 +699,7 @@ export function EditorPage() {
   // double-click) is harmless: getFullImageBounds always recovers the same
   // true image rect from whatever the layer's current frame+crop happens
   // to be, so recomputing it is idempotent.
-  function handleEnterCropMode(e: ReactMouseEvent<HTMLDivElement>, layer: ImageLayer) {
-    e.stopPropagation()
+  function handleEnterCropMode(layer: ImageLayer) {
     setSelectedFieldId(layer.id)
     setAdjustingCanvas(false)
     cropSession.current = { layerId: layer.id, imageBounds: getFullImageBounds(layer), layerSnapshot: layer }
@@ -1087,7 +1086,10 @@ export function EditorPage() {
                           onPointerMove={isCropping ? handleCropPanPointerMove : handlePointerMove}
                           onPointerUp={isCropping ? handleCropPanPointerUp : handlePointerUp}
                           onClick={(e) => e.stopPropagation()}
-                          onDoubleClick={(e) => handleEnterCropMode(e, layer)}
+                          onDoubleClick={(e) => {
+                            e.stopPropagation()
+                            handleEnterCropMode(layer)
+                          }}
                         >
                           {(() => {
                             const crop = getCropRect(layer)
@@ -1285,6 +1287,7 @@ export function EditorPage() {
                             <PropertyBar
                               fontSize={layer.type === 'text' ? layer.fontSize : undefined}
                               onChangeFontSize={layer.type === 'text' ? (px) => handleChangeFontSize(layer.id, px) : undefined}
+                              onCrop={layer.type === 'image' ? () => handleEnterCropMode(layer) : undefined}
                               onDelete={() => handleDeleteLayer(layer.id)}
                             />
                           </div>,
