@@ -31,8 +31,7 @@ export interface ImageLayer extends BaseLayer {
   // Crop rectangle, as fractions (0-1) of naturalWidth/naturalHeight.
   // Undefined means "the whole image" — every image layer starts this way
   // (see getCropRect below); only set once the user crops via
-  // double-click. This layer's own width/height always stays in the same
-  // aspect ratio as this rectangle — see applyCropToLayer.
+  // double-click (see the crop-mode functions below).
   cropX?: number
   cropY?: number
   cropWidth?: number
@@ -53,30 +52,111 @@ export function getCropRect(layer: ImageLayer): { x: number; y: number; width: n
   }
 }
 
-// Applies a new crop rectangle (fractions of the layer's natural size,
-// clamped/produced by the crop overlay) to a layer. The layer's on-canvas
-// width always stays the same — only its height and vertical position
-// change, recentered on the box's previous vertical center so cropping
-// doesn't make it jump to hug one edge — and always resolves to exactly the
-// new crop rectangle's own aspect ratio, which is what lets the image keep
-// rendering distortion-free afterward (see the image layer's style in
-// EditorPage.tsx: it relies on the box's aspect ratio always matching the
-// crop rectangle's).
-export function applyCropToLayer(layer: ImageLayer, crop: { x: number; y: number; width: number; height: number }): ImageLayer {
-  const cropWidthPx = crop.width * layer.naturalWidth
-  const cropHeightPx = crop.height * layer.naturalHeight
-  const newAspect = cropWidthPx / cropHeightPx
-  const height = Math.max(MIN_LAYER_SIZE, layer.width / newAspect)
-  const centerY = layer.y + layer.height / 2
+// --- Crop mode (double-click an image layer) ---
+//
+// Entering crop mode changes nothing about the layer — it stays exactly
+// where/how it already is (this is the whole point: adjusting a crop
+// in-place at the canvas's own real scale, not in some separately-scaled
+// overlay, is what makes it feel precise). What crop mode needs is a fixed
+// reference point for the *entire* source image's own on-canvas rect (most
+// of which isn't currently visible, if anything's cropped already) — that's
+// getFullImageBounds below, computed once when a crop session starts and
+// then held constant (see EditorPage.tsx's cropSession ref) while the user
+// pans the image or resizes the frame around it.
+
+export interface ImageBounds {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+// The full source image's own on-canvas rect at its current effective scale
+// — i.e. where/how big the ENTIRE image would be if none of it were
+// cropped out. Derived from the layer's current frame (x/y/width/height)
+// and crop fraction; call once, at the moment a crop session begins.
+export function getFullImageBounds(layer: ImageLayer): ImageBounds {
+  const crop = getCropRect(layer)
+  const width = layer.width / crop.width
+  const height = layer.height / crop.height
+  return { x: layer.x - crop.x * width, y: layer.y - crop.y * height, width, height }
+}
+
+// Converts a frame rect (the layer's own x/y/width/height — i.e. what's
+// currently visible) back into a crop fraction, given the session's fixed
+// image bounds. Used after both panning (frame unchanged, imageBounds.x/y
+// moved) and resizing (imageBounds unchanged, frame moved/resized).
+export function frameToCropFraction(
+  frame: { x: number; y: number; width: number; height: number },
+  imageBounds: ImageBounds,
+): { x: number; y: number; width: number; height: number } {
   return {
-    ...layer,
-    cropX: crop.x,
-    cropY: crop.y,
-    cropWidth: crop.width,
-    cropHeight: crop.height,
-    height,
-    y: centerY - height / 2,
+    x: (frame.x - imageBounds.x) / imageBounds.width,
+    y: (frame.y - imageBounds.y) / imageBounds.height,
+    width: frame.width / imageBounds.width,
+    height: frame.height / imageBounds.height,
   }
+}
+
+// Dragging the image itself while cropping: pans the image under a
+// fixed-size frame, clamped so the frame can never end up showing past the
+// image's own edges (its own size, imageSize, never changes from a pan).
+export function clampImagePan(
+  desired: { x: number; y: number },
+  frame: { x: number; y: number; width: number; height: number },
+  imageSize: { width: number; height: number },
+): { x: number; y: number } {
+  const minX = frame.x + frame.width - imageSize.width
+  const maxX = frame.x
+  const minY = frame.y + frame.height - imageSize.height
+  const maxY = frame.y
+  return { x: Math.min(maxX, Math.max(minX, desired.x)), y: Math.min(maxY, Math.max(minY, desired.y)) }
+}
+
+// Dragging one of the frame's own 8 handles while cropping: a free resize
+// (all 8 make sense here, unlike an ordinary image resize — a crop is
+// meant to select an arbitrary rectangle, not preserve any particular
+// ratio), clamped so the frame can never grow past the image's own fixed
+// edges. The image itself never moves or rescales from a resize — only the
+// visible window (the frame) does.
+export function applyCropFrameResizeDelta(
+  frame: { x: number; y: number; width: number; height: number },
+  deltaXPx: number,
+  deltaYPx: number,
+  displayScale: number,
+  xSign: ResizeSign,
+  ySign: ResizeSign,
+  imageBounds: ImageBounds,
+): { x: number; y: number; width: number; height: number } {
+  const deltaX = deltaXPx / displayScale
+  const deltaY = deltaYPx / displayScale
+
+  let x = frame.x
+  let y = frame.y
+  let width = frame.width
+  let height = frame.height
+
+  if (xSign === 1) {
+    const maxRight = imageBounds.x + imageBounds.width
+    width = Math.min(maxRight - x, Math.max(MIN_LAYER_SIZE, frame.width + deltaX))
+  } else if (xSign === -1) {
+    const rightEdge = frame.x + frame.width
+    width = Math.max(MIN_LAYER_SIZE, frame.width - deltaX)
+    x = Math.max(imageBounds.x, rightEdge - width)
+    width = rightEdge - x
+  }
+
+  if (ySign === 1) {
+    const maxBottom = imageBounds.y + imageBounds.height
+    height = Math.min(maxBottom - y, Math.max(MIN_LAYER_SIZE, frame.height + deltaY))
+  } else if (ySign === -1) {
+    const bottomEdge = frame.y + frame.height
+    height = Math.max(MIN_LAYER_SIZE, frame.height - deltaY)
+    y = Math.max(imageBounds.y, bottomEdge - height)
+    height = bottomEdge - y
+  }
+
+  return { x, y, width, height }
 }
 
 export const SIZE_PRESETS: { label: string; px: number }[] = [

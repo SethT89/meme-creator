@@ -25,19 +25,21 @@ import {
   applyDragDelta,
   applyResizeDelta,
   applyAspectLockedResizeDelta,
-  applyCropToLayer,
   createBlankTextLayer,
   createImageLayer,
   getCropRect,
+  getFullImageBounds,
+  frameToCropFraction,
+  clampImagePan,
+  applyCropFrameResizeDelta,
   RESIZE_HANDLES,
   MIN_CANVAS_SIZE,
 } from '../../lib/layers'
-import type { Layer, TextLayer, ImageLayer, ResizeSign } from '../../lib/layers'
+import type { Layer, TextLayer, ImageLayer, ImageBounds, ResizeSign } from '../../lib/layers'
 import { renderCreationToBlob } from '../../lib/exportCanvas'
 import { canShareFile, downloadBlob, isMobileOrTabletDevice, sanitizeFilename, shareFile } from '../../lib/exportDelivery'
 import { prepareImageForUpload } from '../../lib/imageUpload'
 import { supabase } from '../../lib/supabase'
-import { ImageCropOverlay } from './ImageCropOverlay'
 import type { Json } from '../../types/database'
 
 type Source =
@@ -85,9 +87,34 @@ export function EditorPage() {
   // whenever nothing else happens to be selected, so they don't appear
   // unannounced immediately after every upload.
   const [adjustingCanvas, setAdjustingCanvas] = useState(false)
-  // Set by double-clicking an image layer — while non-null, ImageCropOverlay
-  // renders full-screen for that one layer, covering everything else.
+  // Set by double-clicking an image layer — while non-null, that layer
+  // renders in-place with a dashed frame instead of its normal solid
+  // selection border: dragging the image pans it, dragging a handle
+  // resizes the frame, and a click anywhere outside accepts the result
+  // (Escape reverts). See cropSession below for the session's fixed
+  // reference point.
   const [cropTargetId, setCropTargetId] = useState<string | null>(null)
+  // Established once when crop mode starts (see handleEnterCropMode) and
+  // held for the whole session: imageBounds is the full source image's own
+  // on-canvas rect (most of which isn't visible if anything's cropped) —
+  // mutated in place as the user pans, but never rescaled, since panning
+  // and resizing the frame both leave the image's own scale untouched.
+  // layerSnapshot is the layer exactly as it was before crop mode started,
+  // restored verbatim if the session is reverted (Escape).
+  const cropSession = useRef<{ layerId: string; imageBounds: ImageBounds; layerSnapshot: ImageLayer } | null>(null)
+  const cropPanState = useRef<{ startX: number; startY: number; imageBoundsStart: ImageBounds } | null>(null)
+  const cropResizeState = useRef<{
+    startX: number
+    startY: number
+    frameStart: { x: number; y: number; width: number; height: number }
+    xSign: ResizeSign
+    ySign: ResizeSign
+  } | null>(null)
+  // Attached to the cropping layer's own wrapper div — lets the
+  // outside-pointerdown-exits-crop-mode listener below tell a pointerdown
+  // on the frame itself (pan/resize — let it through) apart from one
+  // anywhere else on the page (accept and exit).
+  const cropFrameElRef = useRef<HTMLDivElement>(null)
   const editStartLabel = useRef('')
   // Set (alongside editStartLabel) at every call site that starts a new edit
   // session, consumed by the contentEditable ref callback below. Needed
@@ -175,6 +202,39 @@ export function EditorPage() {
     document.addEventListener('click', handleDocumentClick)
     return () => document.removeEventListener('click', handleDocumentClick)
   }, [])
+
+  // "A click anywhere outside accepts the crop" — a capture-phase listener
+  // (fires before any bubble-phase handler, including the stopPropagation
+  // every other layer/button already calls on its own pointerdown) rather
+  // than another bubble listener like the one above: a plain bubble
+  // listener would never fire for a pointerdown that landed on, say,
+  // another layer or the FAB, since those already stop the event from
+  // reaching `document` in the bubble phase. Capture-phase isn't affected
+  // by that at all, so this reliably catches "anywhere else," not just
+  // "anywhere with no handler of its own." A pointerdown on the cropping
+  // frame itself (panning, or one of its resize handles, both DOM
+  // descendants of it) is deliberately let through untouched.
+  useEffect(() => {
+    if (!cropTargetId) return
+    function handlePointerDownCapture(e: PointerEvent) {
+      if (cropFrameElRef.current && e.target instanceof Node && !cropFrameElRef.current.contains(e.target)) {
+        handleExitCropMode(false)
+      }
+    }
+    document.addEventListener('pointerdown', handlePointerDownCapture, true)
+    return () => document.removeEventListener('pointerdown', handlePointerDownCapture, true)
+  }, [cropTargetId])
+
+  // Escape reverts the crop session instead of accepting it — the one
+  // exit path that's not just "a plain click elsewhere."
+  useEffect(() => {
+    if (!cropTargetId) return
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') handleExitCropMode(true)
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [cropTargetId])
 
   // Delete/Backspace deletes the selected field — but only while it's
   // merely selected, not while actively editing its text (where those keys
@@ -308,6 +368,7 @@ export function EditorPage() {
     setEditingLayerId(null)
     setAdjustingCanvas(false)
     setCropTargetId(null)
+    cropSession.current = null
     setLayers([])
     setLayersSeededFor(undefined)
     baselineLayersRef.current = []
@@ -321,6 +382,7 @@ export function EditorPage() {
     setEditingLayerId(null)
     setAdjustingCanvas(false)
     setCropTargetId(null)
+    cropSession.current = null
     setLayers([])
     setLayersSeededFor(undefined)
     baselineLayersRef.current = []
@@ -465,6 +527,7 @@ export function EditorPage() {
         setEditingLayerId(null)
         setAdjustingCanvas(false)
         setCropTargetId(null)
+        cropSession.current = null
         setLayers([newLayer])
         setLayersSeededFor(undefined)
         // The freshly-created canvas's starting point already includes this
@@ -629,13 +692,107 @@ export function EditorPage() {
     setSelectedFieldId(null)
   }
 
-  const cropTargetLayer = layers.find((l): l is ImageLayer => l.id === cropTargetId && l.type === 'image')
+  // Double-clicking an image layer. Entering crop mode changes nothing
+  // about the layer yet — it stays exactly where/how it already is; only
+  // the session's fixed reference point (imageBounds) gets established.
+  // Re-entering while already cropping the same layer (a repeated
+  // double-click) is harmless: getFullImageBounds always recovers the same
+  // true image rect from whatever the layer's current frame+crop happens
+  // to be, so recomputing it is idempotent.
+  function handleEnterCropMode(e: ReactMouseEvent<HTMLDivElement>, layer: ImageLayer) {
+    e.stopPropagation()
+    setSelectedFieldId(layer.id)
+    setAdjustingCanvas(false)
+    cropSession.current = { layerId: layer.id, imageBounds: getFullImageBounds(layer), layerSnapshot: layer }
+    setCropTargetId(layer.id)
+  }
 
-  function handleCropConfirm(crop: { x: number; y: number; width: number; height: number }) {
-    if (!cropTargetLayer) return
-    const targetId = cropTargetLayer.id
-    setLayers((prev) => prev.map((l) => (l.id === targetId && l.type === 'image' ? applyCropToLayer(l, crop) : l)))
+  function handleExitCropMode(revert: boolean) {
+    const session = cropSession.current
+    if (!session) return
+    if (revert) {
+      setLayers((prev) => prev.map((l) => (l.id === session.layerId ? session.layerSnapshot : l)))
+    }
+    cropSession.current = null
     setCropTargetId(null)
+  }
+
+  // Dragging the image itself while cropping — pans it under the frame,
+  // which stays exactly where it is.
+  function handleCropPanPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    e.stopPropagation()
+    const session = cropSession.current
+    if (!session) return
+    cropPanState.current = { startX: e.clientX, startY: e.clientY, imageBoundsStart: { ...session.imageBounds } }
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+  }
+
+  function handleCropPanPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    e.stopPropagation()
+    const pan = cropPanState.current
+    const session = cropSession.current
+    if (!pan || !session || !activeCanvas || !imgRef.current) return
+    const layer = layers.find((l) => l.id === session.layerId)
+    if (!layer || layer.type !== 'image') return
+    const displayScale = imgRef.current.getBoundingClientRect().width / activeCanvas.width
+    const desired = {
+      x: pan.imageBoundsStart.x + (e.clientX - pan.startX) / displayScale,
+      y: pan.imageBoundsStart.y + (e.clientY - pan.startY) / displayScale,
+    }
+    const clamped = clampImagePan(desired, layer, pan.imageBoundsStart)
+    session.imageBounds = { ...session.imageBounds, x: clamped.x, y: clamped.y }
+    const crop = frameToCropFraction(layer, session.imageBounds)
+    setLayers((prev) =>
+      prev.map((l) => (l.id === layer.id && l.type === 'image' ? { ...l, cropX: crop.x, cropY: crop.y, cropWidth: crop.width, cropHeight: crop.height } : l)),
+    )
+  }
+
+  function handleCropPanPointerUp() {
+    cropPanState.current = null
+  }
+
+  // Dragging one of the frame's 8 handles while cropping — free resize
+  // (see applyCropFrameResizeDelta for why all 8, unlike an ordinary image
+  // resize's 4 corners), clamped to the image's own fixed bounds.
+  function handleCropResizePointerDown(e: ReactPointerEvent<HTMLDivElement>, layer: ImageLayer, xSign: ResizeSign, ySign: ResizeSign) {
+    e.stopPropagation()
+    cropResizeState.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      frameStart: { x: layer.x, y: layer.y, width: layer.width, height: layer.height },
+      xSign,
+      ySign,
+    }
+    e.currentTarget.setPointerCapture?.(e.pointerId)
+  }
+
+  function handleCropResizePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    e.stopPropagation()
+    const resize = cropResizeState.current
+    const session = cropSession.current
+    if (!resize || !session || !activeCanvas || !imgRef.current) return
+    const displayScale = imgRef.current.getBoundingClientRect().width / activeCanvas.width
+    const newFrame = applyCropFrameResizeDelta(
+      resize.frameStart,
+      e.clientX - resize.startX,
+      e.clientY - resize.startY,
+      displayScale,
+      resize.xSign,
+      resize.ySign,
+      session.imageBounds,
+    )
+    const crop = frameToCropFraction(newFrame, session.imageBounds)
+    setLayers((prev) =>
+      prev.map((l) =>
+        l.id === session.layerId && l.type === 'image'
+          ? { ...l, x: newFrame.x, y: newFrame.y, width: newFrame.width, height: newFrame.height, cropX: crop.x, cropY: crop.y, cropWidth: crop.width, cropHeight: crop.height }
+          : l,
+      ),
+    )
+  }
+
+  function handleCropResizePointerUp() {
+    cropResizeState.current = null
   }
 
   const defaultName =
@@ -905,27 +1062,32 @@ export function EditorPage() {
                   const heightPct = (layer.height / activeCanvas.height) * 100
                   const isSelected = selectedFieldId === layer.id
                   const isEditing = editingLayerId === layer.id
+                  const isCropping = layer.type === 'image' && cropTargetId === layer.id
 
                   return (
                     <Fragment key={layer.id}>
                       {layer.type === 'image' ? (
                         <div
-                          // overflow-hidden matters once a crop is applied:
-                          // the <img> below then renders larger than this
-                          // box (see its own style comment) so only the
-                          // cropped region shows, not the full image.
+                          ref={isCropping ? cropFrameElRef : undefined}
+                          // overflow-hidden always on, cropping or not — the
+                          // <img> below renders larger than this box exactly
+                          // when a crop is set (see its own style comment),
+                          // and this box always clips it to the current crop.
+                          // While panning in crop mode this means the parts
+                          // of the image being panned into view only appear
+                          // once they're actually inside the frame — no
+                          // separate preview of what's just outside it,
+                          // which keeps this box's rendering identical
+                          // whether or not it's mid-crop-session.
                           className={`absolute touch-none cursor-grab overflow-hidden active:cursor-grabbing ${
-                            isSelected ? 'border border-blue-500' : 'border border-transparent'
+                            isCropping ? 'border-2 border-dashed border-blue-500' : isSelected ? 'border border-blue-500' : 'border border-transparent'
                           }`}
                           style={{ left: `${leftPct}%`, top: `${topPct}%`, width: `${widthPct}%`, height: `${heightPct}%` }}
-                          onPointerDown={(e) => handlePointerDown(e, layer)}
-                          onPointerMove={handlePointerMove}
-                          onPointerUp={handlePointerUp}
+                          onPointerDown={(e) => (isCropping ? handleCropPanPointerDown(e) : handlePointerDown(e, layer))}
+                          onPointerMove={isCropping ? handleCropPanPointerMove : handlePointerMove}
+                          onPointerUp={isCropping ? handleCropPanPointerUp : handlePointerUp}
                           onClick={(e) => e.stopPropagation()}
-                          onDoubleClick={(e) => {
-                            e.stopPropagation()
-                            setCropTargetId(layer.id)
-                          }}
+                          onDoubleClick={(e) => handleEnterCropMode(e, layer)}
                         >
                           {(() => {
                             const crop = getCropRect(layer)
@@ -938,10 +1100,10 @@ export function EditorPage() {
                                 // Renders the image larger than this box by
                                 // exactly 1/cropWidth and 1/cropHeight, then
                                 // shifts it up/left so the cropped region
-                                // lands at (0,0) — the overflow-hidden
-                                // parent clips everything else. With no crop
-                                // (the default 0,0,1,1) this reduces to
-                                // 100%/100%/0/0, i.e. today's plain
+                                // lands at (0,0) — the wrapper's own
+                                // overflow-hidden clips everything else. With
+                                // no crop (the default 0,0,1,1) this reduces
+                                // to 100%/100%/0/0, i.e. today's plain
                                 // fill-the-box behavior.
                                 style={{
                                   width: `${(1 / crop.width) * 100}%`,
@@ -952,7 +1114,20 @@ export function EditorPage() {
                               />
                             )
                           })()}
+                          {isCropping &&
+                            RESIZE_HANDLES.map((handle) => (
+                              <div
+                                key={handle.key}
+                                className="absolute z-10 h-2.5 w-2.5 touch-none border border-blue-500 bg-white"
+                                style={{ top: handle.top, left: handle.left, transform: 'translate(-50%, -50%)', cursor: handle.cursor }}
+                                onPointerDown={(e) => handleCropResizePointerDown(e, layer, handle.xSign, handle.ySign)}
+                                onPointerMove={handleCropResizePointerMove}
+                                onPointerUp={handleCropResizePointerUp}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            ))}
                           {isSelected &&
+                            !isCropping &&
                             CORNER_RESIZE_HANDLES.map((handle) => (
                               <div
                                 key={handle.key}
@@ -1077,6 +1252,7 @@ export function EditorPage() {
                       )}
 
                       {isSelected &&
+                        !isCropping &&
                         propertyBarPos &&
                         createPortal(
                           <div
@@ -1173,8 +1349,6 @@ export function EditorPage() {
           {toast.message}
         </div>
       )}
-
-      {cropTargetLayer && <ImageCropOverlay layer={cropTargetLayer} onConfirm={handleCropConfirm} onCancel={() => setCropTargetId(null)} />}
     </div>
   )
 }

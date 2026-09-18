@@ -13,7 +13,10 @@ import {
   createBlankTextLayer,
   createImageLayer,
   getCropRect,
-  applyCropToLayer,
+  getFullImageBounds,
+  frameToCropFraction,
+  clampImagePan,
+  applyCropFrameResizeDelta,
   MIN_LAYER_SIZE,
 } from './layers'
 import type { Layer, ImageLayer } from './layers'
@@ -325,38 +328,105 @@ describe('getCropRect', () => {
   })
 })
 
-describe('applyCropToLayer', () => {
-  // 800x600 source image, current on-canvas box 400x300 (also 4:3, matching
-  // the uncropped image — a layer's box always starts in that ratio).
-  const layer: ImageLayer = { type: 'image', id: 'img1', src: 'https://example.com/a.png', naturalWidth: 800, naturalHeight: 600, x: 50, y: 50, width: 400, height: 300 }
-
-  it('stores the new crop fractions on the layer', () => {
-    const cropped = applyCropToLayer(layer, { x: 0.25, y: 0.25, width: 0.5, height: 0.5 })
-    expect(cropped.cropX).toBe(0.25)
-    expect(cropped.cropY).toBe(0.25)
-    expect(cropped.cropWidth).toBe(0.5)
-    expect(cropped.cropHeight).toBe(0.5)
+describe('getFullImageBounds', () => {
+  it('for an uncropped layer, the full image bounds equal the layer itself', () => {
+    const layer: ImageLayer = { type: 'image', id: 'img1', src: 'https://example.com/a.png', naturalWidth: 800, naturalHeight: 600, x: 50, y: 50, width: 400, height: 300 }
+    expect(getFullImageBounds(layer)).toEqual({ x: 50, y: 50, width: 400, height: 300 })
   })
 
-  it('keeps the box width unchanged and recomputes height to match the new crop aspect ratio', () => {
-    // Crop selects a square region (300x300px of the 800x600 source:
-    // 0.375*800=300, 0.5*600=300) — 1:1 aspect, versus the original 4:3 —
-    // so at the same 400px width, height must become 400px too.
-    const cropped = applyCropToLayer(layer, { x: 0, y: 0, width: 0.375, height: 0.5 })
-    expect(cropped.width).toBe(400)
-    expect(cropped.height).toBe(400)
+  it('for an already-cropped layer, extrapolates the full image extending beyond the visible frame', () => {
+    // The visible 400x300 frame is the middle 50%x50% of the full image —
+    // so the full image is 4x the area, offset up-left by one crop-width/height.
+    const layer: ImageLayer = {
+      type: 'image',
+      id: 'img1',
+      src: 'https://example.com/a.png',
+      naturalWidth: 800,
+      naturalHeight: 600,
+      x: 50,
+      y: 50,
+      width: 400,
+      height: 300,
+      cropX: 0.25,
+      cropY: 0.25,
+      cropWidth: 0.5,
+      cropHeight: 0.5,
+    }
+    expect(getFullImageBounds(layer)).toEqual({ x: 50 - 0.25 * 800, y: 50 - 0.25 * 600, width: 800, height: 600 })
+  })
+})
+
+describe('frameToCropFraction', () => {
+  it('round-trips with getFullImageBounds for an uncropped layer (the whole image)', () => {
+    const layer: ImageLayer = { type: 'image', id: 'img1', src: 'https://example.com/a.png', naturalWidth: 800, naturalHeight: 600, x: 50, y: 50, width: 400, height: 300 }
+    const bounds = getFullImageBounds(layer)
+    expect(frameToCropFraction(layer, bounds)).toEqual({ x: 0, y: 0, width: 1, height: 1 })
   })
 
-  it('recenters vertically on the previous center rather than jumping to hug the top edge', () => {
-    // Same square crop as above — height actually changes (300 -> 400),
-    // so this genuinely exercises recentering rather than a no-op.
-    const cropped = applyCropToLayer(layer, { x: 0, y: 0, width: 0.375, height: 0.5 })
-    const previousCenterY = layer.y + layer.height / 2
-    expect(cropped.y + cropped.height / 2).toBeCloseTo(previousCenterY)
+  it('computes the fraction of a frame smaller than the full image bounds', () => {
+    const bounds = { x: 0, y: 0, width: 800, height: 600 }
+    expect(frameToCropFraction({ x: 200, y: 150, width: 400, height: 300 }, bounds)).toEqual({ x: 0.25, y: 0.25, width: 0.5, height: 0.5 })
+  })
+})
+
+describe('clampImagePan', () => {
+  const frame = { x: 100, y: 100, width: 200, height: 150 }
+  const imageSize = { width: 400, height: 300 } // bigger than the frame — room to pan
+
+  it('allows a pan within bounds unchanged', () => {
+    expect(clampImagePan({ x: 50, y: 60 }, frame, imageSize)).toEqual({ x: 50, y: 60 })
   })
 
-  it('leaves x unchanged', () => {
-    const cropped = applyCropToLayer(layer, { x: 0.1, y: 0.1, width: 0.3, height: 0.6 })
-    expect(cropped.x).toBe(layer.x)
+  it('clamps so the frame cannot reveal past the image’s right/bottom edge', () => {
+    const minX = frame.x + frame.width - imageSize.width // 100+200-400 = -100
+    const minY = frame.y + frame.height - imageSize.height // 100+150-300 = -50
+    expect(clampImagePan({ x: -500, y: -500 }, frame, imageSize)).toEqual({ x: minX, y: minY })
+  })
+
+  it('clamps so the frame cannot reveal past the image’s left/top edge', () => {
+    expect(clampImagePan({ x: 500, y: 500 }, frame, imageSize)).toEqual({ x: frame.x, y: frame.y })
+  })
+})
+
+describe('applyCropFrameResizeDelta', () => {
+  const frame = { x: 100, y: 100, width: 200, height: 150 }
+  const imageBounds = { x: 0, y: 0, width: 800, height: 600 } // plenty of room to grow into
+
+  it('bottom-right (xSign 1, ySign 1) grows width and height independently, keeps position', () => {
+    const resized = applyCropFrameResizeDelta(frame, 50, 20, 1, 1, 1, imageBounds)
+    expect(resized).toEqual({ x: 100, y: 100, width: 250, height: 170 })
+  })
+
+  it('top-left (xSign -1, ySign -1) grows the frame while anchoring the opposite corner', () => {
+    const resized = applyCropFrameResizeDelta(frame, -50, -20, 1, -1, -1, imageBounds)
+    expect(resized.width).toBe(250)
+    expect(resized.height).toBe(170)
+    expect(resized.x).toBe(50) // (100+200) - 250, right edge stays at 300
+    expect(resized.y).toBe(80) // (100+150) - 170, bottom edge stays at 250
+  })
+
+  it('an edge-only handle (right-mid) changes only that axis, unlike an ordinary image resize', () => {
+    const resized = applyCropFrameResizeDelta(frame, 50, 999, 1, 1, 0, imageBounds)
+    expect(resized.width).toBe(250)
+    expect(resized.height).toBe(frame.height)
+    expect(resized.y).toBe(frame.y)
+  })
+
+  it('clamps growth so the frame cannot extend past the image bounds on the right', () => {
+    const tightBounds = { x: 0, y: 0, width: 250, height: 600 } // right edge at 250
+    const resized = applyCropFrameResizeDelta(frame, 10000, 0, 1, 1, 0, tightBounds)
+    expect(resized.width).toBe(150) // 250 - frame.x(100)
+  })
+
+  it('clamps growth so the frame cannot extend past the image bounds on the left', () => {
+    const tightBounds = { x: 80, y: 0, width: 800, height: 600 } // left edge at 80
+    const resized = applyCropFrameResizeDelta(frame, -10000, 0, 1, -1, 0, tightBounds)
+    expect(resized.x).toBe(80)
+    expect(resized.width).toBe(220) // (100+200) - 80
+  })
+
+  it('clamps shrinking to MIN_LAYER_SIZE same as an ordinary resize', () => {
+    const resized = applyCropFrameResizeDelta(frame, -10000, 0, 1, 1, 0, imageBounds)
+    expect(resized.width).toBe(MIN_LAYER_SIZE)
   })
 })
