@@ -259,6 +259,25 @@ export function createImageLayer(
   }
 }
 
+export type ReorderAction = 'forward' | 'backward' | 'front' | 'back'
+
+// Stacking order is just array order — later entries paint on top of
+// earlier ones, on screen and in export alike (both iterate the array in
+// order) — so changing a layer's z-order means moving it within the array.
+// Returns the very same array (not a copy) when the move would change
+// nothing, so a caller's setState bails out instead of re-rendering.
+export function reorderLayer(layers: Layer[], id: string, action: ReorderAction): Layer[] {
+  const from = layers.findIndex((l) => l.id === id)
+  if (from === -1) return layers
+  const last = layers.length - 1
+  const to = action === 'forward' ? Math.min(from + 1, last) : action === 'backward' ? Math.max(from - 1, 0) : action === 'front' ? last : 0
+  if (to === from) return layers
+  const next = [...layers]
+  const [moved] = next.splice(from, 1)
+  next.splice(to, 0, moved)
+  return next
+}
+
 export function layersFromCanvasData(canvasData: unknown, fallbackFields: TemplateFieldRow[]): Layer[] {
   const layers = (canvasData as { layers?: Layer[] } | null | undefined)?.layers
   if (layers && layers.length > 0) {

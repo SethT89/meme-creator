@@ -18,6 +18,7 @@ import {
   clampImagePan,
   applyCropFrameResizeDelta,
   MIN_LAYER_SIZE,
+  reorderLayer,
 } from './layers'
 import type { Layer, ImageLayer } from './layers'
 
@@ -428,5 +429,49 @@ describe('applyCropFrameResizeDelta', () => {
   it('clamps shrinking to MIN_LAYER_SIZE same as an ordinary resize', () => {
     const resized = applyCropFrameResizeDelta(frame, -10000, 0, 1, 1, 0, imageBounds)
     expect(resized.width).toBe(MIN_LAYER_SIZE)
+  })
+})
+
+describe('reorderLayer', () => {
+  const text = (id: string): Layer => ({ type: 'text', id, label: id, x: 0, y: 0, width: 10, height: 10, fontSize: 20, heightAuto: true })
+  const abcd = [text('a'), text('b'), text('c'), text('d')]
+  const ids = (layers: Layer[]) => layers.map((l) => l.id)
+
+  it('forward moves the layer up one step (later in the array = on top)', () => {
+    expect(ids(reorderLayer(abcd, 'b', 'forward'))).toEqual(['a', 'c', 'b', 'd'])
+  })
+
+  it('backward moves the layer down one step', () => {
+    expect(ids(reorderLayer(abcd, 'c', 'backward'))).toEqual(['a', 'c', 'b', 'd'])
+  })
+
+  it('front moves the layer to the top of the stack, leaving the others in order', () => {
+    expect(ids(reorderLayer(abcd, 'b', 'front'))).toEqual(['a', 'c', 'd', 'b'])
+  })
+
+  it('back moves the layer to the bottom of the stack, leaving the others in order', () => {
+    expect(ids(reorderLayer(abcd, 'c', 'back'))).toEqual(['c', 'a', 'b', 'd'])
+  })
+
+  it('returns the very same array when the move would change nothing', () => {
+    expect(reorderLayer(abcd, 'd', 'forward')).toBe(abcd)
+    expect(reorderLayer(abcd, 'd', 'front')).toBe(abcd)
+    expect(reorderLayer(abcd, 'a', 'backward')).toBe(abcd)
+    expect(reorderLayer(abcd, 'a', 'back')).toBe(abcd)
+  })
+
+  it('returns the same array for an unknown layer id', () => {
+    expect(reorderLayer(abcd, 'zzz', 'front')).toBe(abcd)
+  })
+
+  it('does not mutate the input array', () => {
+    const before = ids(abcd)
+    reorderLayer(abcd, 'a', 'front')
+    expect(ids(abcd)).toEqual(before)
+  })
+
+  it('works the same for image layers as for text layers', () => {
+    const img: Layer = { type: 'image', id: 'img', src: 'x', naturalWidth: 10, naturalHeight: 10, x: 0, y: 0, width: 10, height: 10 }
+    expect(ids(reorderLayer([img, text('a')], 'img', 'front'))).toEqual(['a', 'img'])
   })
 })

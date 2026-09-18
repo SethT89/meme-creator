@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { SIZE_PRESETS, clampFontSize, sizeLabel } from '../../lib/layers'
+import type { ReorderAction } from '../../lib/layers'
 
 interface PropertyBarProps {
   // Present for a text layer, omitted for an image layer — the Font/Size
@@ -11,10 +12,27 @@ interface PropertyBarProps {
   // button only renders when given.
   onCrop?: () => void
   onDelete: () => void
+  // Layering applies to every object, so unlike the props above these are
+  // never optional. The can* flags come from the layer's position in the
+  // stack: an entry that would change nothing is shown but disabled.
+  onReorder: (action: ReorderAction) => void
+  canMoveForward: boolean
+  canMoveBackward: boolean
 }
 
-export function PropertyBar({ fontSize, onChangeFontSize, onCrop, onDelete }: PropertyBarProps) {
+// Order matches the dropdown top-to-bottom. `needs` is which direction the
+// layer must still be able to move for the entry to do anything. Hints are
+// the keyboard shortcuts wired up in EditorPage.
+const LAYERING_OPTIONS: { action: ReorderAction; label: string; hint: string; needs: 'forward' | 'backward' }[] = [
+  { action: 'front', label: 'Bring to front', hint: '⌘⇧]', needs: 'forward' },
+  { action: 'forward', label: 'Bring forward', hint: '⌘]', needs: 'forward' },
+  { action: 'backward', label: 'Send backward', hint: '⌘[', needs: 'backward' },
+  { action: 'back', label: 'Send to back', hint: '⌘⇧[', needs: 'backward' },
+]
+
+export function PropertyBar({ fontSize, onChangeFontSize, onCrop, onDelete, onReorder, canMoveForward, canMoveBackward }: PropertyBarProps) {
   const [panelOpen, setPanelOpen] = useState(false)
+  const [layeringOpen, setLayeringOpen] = useState(false)
 
   function applyCustomSize(raw: string) {
     // Empty is a normal in-progress state (cleared the field to type a
@@ -96,7 +114,39 @@ export function PropertyBar({ fontSize, onChangeFontSize, onCrop, onDelete }: Pr
         </>
       )}
 
-      <span className="rounded-full px-2 py-1 text-xs">⬆ Front</span>
+      <div className="relative">
+        <button
+          type="button"
+          className="rounded-full px-2 py-1 text-xs"
+          aria-haspopup="menu"
+          aria-expanded={layeringOpen}
+          onClick={() => setLayeringOpen((open) => !open)}
+        >
+          Layering
+        </button>
+        {layeringOpen && (
+          <div role="menu" className="absolute bottom-full left-1/2 mb-2 w-48 -translate-x-1/2 rounded-lg bg-neutral-900 p-1.5 shadow-lg">
+            {LAYERING_OPTIONS.map((option) => (
+              <button
+                key={option.action}
+                type="button"
+                role="menuitem"
+                disabled={!(option.needs === 'forward' ? canMoveForward : canMoveBackward)}
+                className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-neutral-700 disabled:cursor-default disabled:text-neutral-500 disabled:hover:bg-transparent"
+                onClick={() => {
+                  onReorder(option.action)
+                  setLayeringOpen(false)
+                }}
+              >
+                {option.label}
+                <span aria-hidden="true" className="ml-3 text-xs text-neutral-400">
+                  {option.hint}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <div className="h-4 w-px bg-neutral-700" />
       <button type="button" className="rounded-full px-2 py-1 text-xs text-red-400" onClick={onDelete}>
         Delete

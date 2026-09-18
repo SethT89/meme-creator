@@ -579,6 +579,156 @@ describe('EditorPage', () => {
     expect(screen.getByText('Caption 1')).toBeInTheDocument()
   })
 
+  describe('Layering (z-order)', () => {
+    // Stacking order is DOM order (later = on top), so the order the
+    // captions appear in the document is the z-order under test.
+    const captionOrder = () => screen.getAllByText(/^Caption \d$/).map((el) => el.textContent)
+
+    async function selectCaption(name: string) {
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+      await userEvent.click(screen.getByText(name))
+    }
+
+    async function chooseLayering(item: RegExp) {
+      await userEvent.click(screen.getByRole('button', { name: 'Layering' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: item }))
+    }
+
+    const press = (init: KeyboardEventInit) => fireEvent.keyDown(document.body, init)
+
+    it('starts in the seeded order', async () => {
+      await selectCaption('Caption 1')
+      expect(captionOrder()).toEqual(['Caption 1', 'Caption 2', 'Caption 3'])
+    })
+
+    it('Bring to front / Send to back from the toolbar dropdown move the selected layer to the ends', async () => {
+      await selectCaption('Caption 2')
+
+      await chooseLayering(/bring to front/i)
+      expect(captionOrder()).toEqual(['Caption 1', 'Caption 3', 'Caption 2'])
+
+      await chooseLayering(/send to back/i)
+      expect(captionOrder()).toEqual(['Caption 2', 'Caption 1', 'Caption 3'])
+    })
+
+    it('Bring forward / Send backward from the dropdown move it one step', async () => {
+      await selectCaption('Caption 1')
+
+      await chooseLayering(/bring forward/i)
+      expect(captionOrder()).toEqual(['Caption 2', 'Caption 1', 'Caption 3'])
+
+      await chooseLayering(/send backward/i)
+      expect(captionOrder()).toEqual(['Caption 1', 'Caption 2', 'Caption 3'])
+    })
+
+    it('keeps the layer selected after reordering, so its toolbar stays up', async () => {
+      await selectCaption('Caption 1')
+      await chooseLayering(/bring to front/i)
+      expect(captionOrder()).toEqual(['Caption 2', 'Caption 3', 'Caption 1'])
+      expect(screen.getByRole('button', { name: 'Layering' })).toBeInTheDocument()
+    })
+
+    it('disables the entries that would do nothing at either end of the stack', async () => {
+      await selectCaption('Caption 3') // already the top layer
+      await userEvent.click(screen.getByRole('button', { name: 'Layering' }))
+      expect(screen.getByRole('menuitem', { name: /bring to front/i })).toBeDisabled()
+      expect(screen.getByRole('menuitem', { name: /send to back/i })).toBeEnabled()
+    })
+
+    it('⌘] brings the selected layer forward one step and ⌘[ sends it back one step', async () => {
+      await selectCaption('Caption 1')
+
+      press({ key: ']', code: 'BracketRight', metaKey: true })
+      expect(captionOrder()).toEqual(['Caption 2', 'Caption 1', 'Caption 3'])
+
+      press({ key: '[', code: 'BracketLeft', metaKey: true })
+      expect(captionOrder()).toEqual(['Caption 1', 'Caption 2', 'Caption 3'])
+    })
+
+    it('⌘⇧] brings to front and ⌘⇧[ sends to back (Shift changes event.key, so it must match on the physical key)', async () => {
+      await selectCaption('Caption 2')
+
+      press({ key: '}', code: 'BracketRight', metaKey: true, shiftKey: true })
+      expect(captionOrder()).toEqual(['Caption 1', 'Caption 3', 'Caption 2'])
+
+      press({ key: '{', code: 'BracketLeft', metaKey: true, shiftKey: true })
+      expect(captionOrder()).toEqual(['Caption 2', 'Caption 1', 'Caption 3'])
+    })
+
+    it('still works when the event carries no physical key code, falling back to the character', async () => {
+      // Some virtual/remote keyboards (and automation) send an empty
+      // event.code — only event.key is reliable there.
+      await selectCaption('Caption 1')
+
+      press({ key: ']', code: '', metaKey: true })
+      expect(captionOrder()).toEqual(['Caption 2', 'Caption 1', 'Caption 3'])
+
+      press({ key: '{', code: '', metaKey: true, shiftKey: true })
+      expect(captionOrder()).toEqual(['Caption 1', 'Caption 2', 'Caption 3'])
+    })
+
+    it('Ctrl works in place of ⌘ for non-Mac keyboards', async () => {
+      await selectCaption('Caption 1')
+      press({ key: ']', code: 'BracketRight', ctrlKey: true })
+      expect(captionOrder()).toEqual(['Caption 2', 'Caption 1', 'Caption 3'])
+    })
+
+    it("prevents the browser's own ⌘[ / ⌘] (Back / Forward) from also firing", async () => {
+      await selectCaption('Caption 1')
+      // fireEvent returns false when preventDefault() was called.
+      expect(press({ key: ']', code: 'BracketRight', metaKey: true })).toBe(false)
+    })
+
+    it('does nothing when no layer is selected', async () => {
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+      press({ key: ']', code: 'BracketRight', metaKey: true })
+      expect(captionOrder()).toEqual(['Caption 1', 'Caption 2', 'Caption 3'])
+    })
+
+    it('ignores a bare bracket press with no ⌘/Ctrl (that is just a character)', async () => {
+      await selectCaption('Caption 1')
+      press({ key: ']', code: 'BracketRight' })
+      expect(captionOrder()).toEqual(['Caption 1', 'Caption 2', 'Caption 3'])
+    })
+
+    it('does nothing while the layer\'s text is being edited', async () => {
+      await selectCaption('Caption 1')
+      await userEvent.dblClick(screen.getByText('Caption 1'))
+
+      press({ key: ']', code: 'BracketRight', metaKey: true })
+
+      expect(captionOrder()).toEqual(['Caption 1', 'Caption 2', 'Caption 3'])
+    })
+
+    it('counts as an edit, so switching templates afterwards asks before discarding it', async () => {
+      await selectCaption('Caption 1')
+      await chooseLayering(/bring to front/i)
+
+      await userEvent.click(screen.getByText('Two Buttons'))
+
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+
+    it('works on an image layer too: an uploaded image starts on top and can be sent behind the captions', async () => {
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+      await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+      await selectImageFile('sticker.png')
+      const layerBox = (await screen.findByAltText('')).parentElement as HTMLElement
+      const caption = screen.getByText('Caption 1')
+      // Uploaded last, so it paints above every caption.
+      expect(caption.compareDocumentPosition(layerBox) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+      await userEvent.click(layerBox)
+      await chooseLayering(/send to back/i)
+
+      expect(layerBox.compareDocumentPosition(screen.getByText('Caption 1')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+  })
+
   describe('Export', () => {
     beforeEach(() => {
       vi.mocked(renderCreationToBlob).mockReset().mockResolvedValue(new Blob(['fake'], { type: 'image/png' }))

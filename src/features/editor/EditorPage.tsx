@@ -27,6 +27,7 @@ import {
   applyAspectLockedResizeDelta,
   createBlankTextLayer,
   createImageLayer,
+  reorderLayer,
   getCropRect,
   getFullImageBounds,
   frameToCropFraction,
@@ -35,7 +36,7 @@ import {
   RESIZE_HANDLES,
   MIN_CANVAS_SIZE,
 } from '../../lib/layers'
-import type { Layer, TextLayer, ImageLayer, ImageBounds, ResizeSign } from '../../lib/layers'
+import type { Layer, TextLayer, ImageLayer, ImageBounds, ResizeSign, ReorderAction } from '../../lib/layers'
 import { renderCreationToBlob } from '../../lib/exportCanvas'
 import { canShareFile, downloadBlob, isMobileOrTabletDevice, sanitizeFilename, shareFile } from '../../lib/exportDelivery'
 import { prepareImageForUpload } from '../../lib/imageUpload'
@@ -255,6 +256,33 @@ export function EditorPage() {
       const active = document.activeElement as HTMLElement | null
       if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return
       handleDeleteLayer(fieldId)
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [selectedFieldId, editingLayerId])
+
+  // ⌘[ / ⌘] move the selected layer back / forward one step in the stack;
+  // adding Shift sends it all the way to the back / front. Ctrl works in
+  // place of ⌘ for non-Mac keyboards. Matched on e.code first, not just
+  // e.key: Shift turns "]" into "}" (and "[" into "{"), and the physical key
+  // is what identifies the shortcut. e.key (both shifted and unshifted
+  // characters) is the fallback for the virtual/remote keyboards and
+  // automation that send an empty e.code. preventDefault stops the browser's own
+  // ⌘[ / ⌘] (history Back / Forward) from also firing. Same registration
+  // rules as Delete above: only while a layer is selected and not being
+  // text-edited, and never while some other input has focus.
+  useEffect(() => {
+    if (!selectedFieldId || editingLayerId === selectedFieldId) return
+    const layerId = selectedFieldId
+    function handleKeyDown(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return
+      const forward = e.code === 'BracketRight' || e.key === ']' || e.key === '}'
+      const backward = e.code === 'BracketLeft' || e.key === '[' || e.key === '{'
+      if (!forward && !backward) return
+      const active = document.activeElement as HTMLElement | null
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) return
+      e.preventDefault()
+      handleReorderLayer(layerId, e.shiftKey ? (forward ? 'front' : 'back') : forward ? 'forward' : 'backward')
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
@@ -689,6 +717,12 @@ export function EditorPage() {
     setLayers((prev) => prev.map((l) => (l.id === layerId ? { ...l, fontSize: px } : l)))
   }
 
+  // Stacking order is array order (see reorderLayer), so this is all
+  // "Layering" needs — the selection stays put and the toolbar stays up.
+  function handleReorderLayer(layerId: string, action: ReorderAction) {
+    setLayers((prev) => reorderLayer(prev, layerId, action))
+  }
+
   function handleDeleteLayer(layerId: string) {
     setLayers((prev) => prev.filter((l) => l.id !== layerId))
     setSelectedFieldId(null)
@@ -1060,7 +1094,7 @@ export function EditorPage() {
               // (which shrink-wraps to the sized img/div above), not from its
               // own content, so containment here has nothing circular to resolve.
               <div className="absolute inset-0 @container">
-                {layers.map((layer) => {
+                {layers.map((layer, layerIndex) => {
                   const leftPct = (layer.x / activeCanvas.width) * 100
                   const topPct = (layer.y / activeCanvas.height) * 100
                   const widthPct = (layer.width / activeCanvas.width) * 100
@@ -1295,6 +1329,9 @@ export function EditorPage() {
                               onChangeFontSize={layer.type === 'text' ? (px) => handleChangeFontSize(layer.id, px) : undefined}
                               onCrop={layer.type === 'image' ? () => handleEnterCropMode(layer) : undefined}
                               onDelete={() => handleDeleteLayer(layer.id)}
+                              onReorder={(action) => handleReorderLayer(layer.id, action)}
+                              canMoveForward={layerIndex < layers.length - 1}
+                              canMoveBackward={layerIndex > 0}
                             />
                           </div>,
                           document.body,
