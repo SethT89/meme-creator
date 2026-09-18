@@ -791,7 +791,25 @@ export function EditorPage() {
                 // rendered a visibly squashed template under 640px). A short
                 // *landscape* phone still gets the floor, since landscape
                 // width is almost always above the sm breakpoint.
-                className="block max-h-[65vh] w-auto max-w-full sm:max-h-[calc(100vh-19rem)] sm:min-h-[240px]"
+                //
+                // object-contain matters specifically when switching between
+                // two templates: this <img> element is reused (same src
+                // attribute changing, not remounted), so the browser keeps
+                // painting the OLD template's already-decoded bitmap while
+                // the new one downloads. The aspect-ratio above already
+                // updates to the new template's ratio immediately (it comes
+                // from templateRow/allTemplates, already loaded — no network
+                // wait), so the box reshapes right away, but the default
+                // object-fit (fill) would non-uniformly stretch that old
+                // bitmap to fill the new box shape until the new image
+                // finishes loading — which is exactly the "squished for a
+                // moment" glitch. object-contain keeps the old bitmap at its
+                // own correct proportions (letterboxed within the new box
+                // shape) for that brief window instead of distorting it; it
+                // has no visible effect once the new image has loaded, since
+                // the box's aspect-ratio always matches the loaded image's
+                // own ratio at rest.
+                className="block max-h-[65vh] w-auto max-w-full object-contain sm:max-h-[calc(100vh-19rem)] sm:min-h-[240px]"
               />
             )}
             {source?.type === 'freeform' && activeCanvas && (
