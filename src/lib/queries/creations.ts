@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../supabase'
+import { removePreview, uploadPreview } from '../previewStorage'
 import type { Tables, Json } from '../../types/database'
 
 export type CreationRow = Tables<'creations'>
@@ -36,12 +37,16 @@ interface CreateCreationInput {
   sourceType: 'template' | 'freeform'
   templateId: string | null
   canvasData: Json
+  // A freshly rendered PNG of the creation, uploaded alongside the row.
+  // Optional and best-effort — see previewStorage.ts.
+  previewBlob?: Blob | null
 }
 
 export function useCreateCreation() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (input: CreateCreationInput) => {
+      const previewUrl = await uploadPreview(input.previewBlob)
       const { data, error } = await supabase
         .from('creations')
         .insert({
@@ -51,6 +56,7 @@ export function useCreateCreation() {
           template_id: input.templateId,
           status: 'final',
           canvas_data: input.canvasData,
+          preview_image_url: previewUrl,
         })
         .select()
         .single()
@@ -68,19 +74,34 @@ interface UpdateCreationInput {
   name: string
   tags: string[]
   canvasData: Json
+  previewBlob?: Blob | null
 }
 
 export function useUpdateCreation() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (input: UpdateCreationInput) => {
+      // Only touch the preview column when there's a new one to store: a
+      // failed render/upload keeps the old preview rather than wiping it.
+      let previousUrl: string | null = null
+      if (input.previewBlob) {
+        const { data: existing } = await supabase.from('creations').select('preview_image_url').eq('id', input.id).single()
+        previousUrl = existing?.preview_image_url ?? null
+      }
+      const newUrl = input.previewBlob ? await uploadPreview(input.previewBlob) : null
       const { data, error } = await supabase
         .from('creations')
-        .update({ name: input.name, tags: input.tags, canvas_data: input.canvasData })
+        .update({
+          name: input.name,
+          tags: input.tags,
+          canvas_data: input.canvasData,
+          ...(newUrl ? { preview_image_url: newUrl } : {}),
+        })
         .eq('id', input.id)
         .select()
         .single()
       if (error) throw error
+      if (newUrl) void removePreview(previousUrl)
       return data
     },
     onSuccess: (_data, variables) => {
@@ -93,9 +114,12 @@ export function useUpdateCreation() {
 export function useDeleteCreation() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (id: string) => {
+    // The caller already has the row (it's showing it), so it passes the
+    // preview URL along rather than this hook re-fetching it just to clean up.
+    mutationFn: async ({ id, previewImageUrl }: { id: string; previewImageUrl: string | null }) => {
       const { error } = await supabase.from('creations').delete().eq('id', id)
       if (error) throw error
+      void removePreview(previewImageUrl)
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['creations'] })

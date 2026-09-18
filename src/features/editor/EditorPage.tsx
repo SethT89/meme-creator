@@ -847,15 +847,38 @@ export function EditorPage() {
     return { layers, ...freeformExtras } as unknown as Json
   }
 
-  function handleDialogSave(name: string, tags: string[]) {
+  // The gallery card's thumbnail (and its Download) come from a PNG rendered
+  // at Save time with the same code Export uses. Best-effort: if rendering
+  // fails (e.g. a cross-origin image taints the canvas) the save must still
+  // go through — the card just falls back to its grey placeholder.
+  async function renderPreviewBlob(): Promise<Blob | null> {
+    if (!imgRef.current || !activeCanvas) return null
+    try {
+      const blob = await renderCreationToBlob(
+        imgRef.current,
+        { image_width: activeCanvas.width, image_height: activeCanvas.height },
+        layers,
+      )
+      return blob ?? null
+    } catch {
+      return null
+    }
+  }
+
+  async function handleDialogSave(name: string, tags: string[]) {
     const activeSource = source! // guaranteed non-null: Save to Gallery only renders once source is set
+    // Captured before the (async) render so the saved layers and the saved
+    // preview are guaranteed to describe the same moment.
+    const canvasData = buildCanvasData(activeSource)
+    const previewBlob = await renderPreviewBlob()
     createCreation.mutate(
       {
         name,
         tags,
         sourceType: activeSource.type,
         templateId: activeSource.type === 'template' ? activeSource.templateId : null,
-        canvasData: buildCanvasData(activeSource),
+        canvasData,
+        previewBlob,
       },
       {
         onSuccess: (row) => {
@@ -866,9 +889,11 @@ export function EditorPage() {
     )
   }
 
-  function handleQuickSave() {
+  async function handleQuickSave() {
     if (!savedMeta) return
-    updateCreation.mutate({ id: savedMeta.id, name: savedMeta.name, tags: savedMeta.tags, canvasData: buildCanvasData(source) })
+    const canvasData = buildCanvasData(source)
+    const previewBlob = await renderPreviewBlob()
+    updateCreation.mutate({ id: savedMeta.id, name: savedMeta.name, tags: savedMeta.tags, canvasData, previewBlob })
   }
 
   async function handleExport() {

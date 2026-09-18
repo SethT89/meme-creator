@@ -623,6 +623,77 @@ describe('EditorPage', () => {
     expect(screen.getByText('Caption 1')).toBeInTheDocument()
   })
 
+  describe('Gallery preview (rendered on save)', () => {
+    type Saved = { preview_image_url?: string | null }
+    const previewOf = () => (savedRows.at(-1) as Saved).preview_image_url
+
+    beforeEach(() => {
+      vi.mocked(renderCreationToBlob).mockReset().mockResolvedValue(new Blob(['png'], { type: 'image/png' }))
+    })
+
+    async function saveFromDialog() {
+      await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Save' }))
+      await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Save' }))
+    }
+
+    it('renders the meme and stores its uploaded preview URL when a template creation is first saved', async () => {
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+
+      await saveFromDialog()
+
+      await waitFor(() => expect(previewOf()).toMatch(/creation-previews\/.+\.png$/))
+      expect(renderCreationToBlob).toHaveBeenCalledWith(
+        expect.any(HTMLImageElement),
+        { image_width: 600, image_height: 908 },
+        expect.arrayContaining([expect.objectContaining({ label: 'Caption 1' })]),
+      )
+    })
+
+    it('re-renders a fresh preview on every later Save, not just the first', async () => {
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+      await saveFromDialog()
+      await waitFor(() => expect(previewOf()).toBeTruthy())
+      const first = previewOf()
+
+      await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Save' })) // quick save: already saved once
+
+      await waitFor(() => expect(previewOf()).not.toBe(first))
+      expect(previewOf()).toMatch(/creation-previews/)
+      expect(renderCreationToBlob).toHaveBeenCalledTimes(2)
+    })
+
+    it('renders freeform canvases too, from their on-screen box', async () => {
+      renderEditor()
+      await screen.findByRole('button', { name: 'Two Buttons' })
+      await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+      await selectImageFile('vacation.png')
+      await screen.findByAltText('')
+      await waitFor(() => expect(screen.getByRole('button', { name: 'More options' })).toBeEnabled())
+
+      await saveFromDialog()
+
+      await waitFor(() => expect(previewOf()).toMatch(/creation-previews/))
+      expect(renderCreationToBlob).toHaveBeenCalledWith(expect.any(HTMLDivElement), { image_width: 400, image_height: 300 }, expect.anything())
+    })
+
+    it('still saves the creation, just without a preview, when rendering fails', async () => {
+      vi.mocked(renderCreationToBlob).mockRejectedValue(new Error('tainted canvas'))
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+
+      await saveFromDialog()
+
+      await waitFor(() => expect(savedRows.at(-1)).toMatchObject({ source_type: 'template', template_id: 'tmpl-1' }))
+      expect(previewOf() ?? null).toBeNull()
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument() // the save completed and the dialog closed
+    })
+  })
+
   describe('Layering (z-order)', () => {
     // Stacking order is DOM order (later = on top), so the order the
     // captions appear in the document is the z-order under test.

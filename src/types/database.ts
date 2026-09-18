@@ -18,7 +18,7 @@ export type Database = {
         Row: {
           canvas_data: Json
           created_at: string
-          exported_image_url: string | null
+          preview_image_url: string | null
           id: string
           name: string
           source_type: Database["public"]["Enums"]["creation_source_type"]
@@ -31,7 +31,7 @@ export type Database = {
         Insert: {
           canvas_data?: Json
           created_at?: string
-          exported_image_url?: string | null
+          preview_image_url?: string | null
           id?: string
           name?: string
           source_type: Database["public"]["Enums"]["creation_source_type"]
@@ -44,7 +44,7 @@ export type Database = {
         Update: {
           canvas_data?: Json
           created_at?: string
-          exported_image_url?: string | null
+          preview_image_url?: string | null
           id?: string
           name?: string
           source_type?: Database["public"]["Enums"]["creation_source_type"]

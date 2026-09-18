@@ -1,8 +1,14 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
-import { useCreations, useCreateCreation, useUpdateCreation } from './creations'
+const { mockUploadPreview, mockRemovePreview } = vi.hoisted(() => ({
+  mockUploadPreview: vi.fn(),
+  mockRemovePreview: vi.fn(),
+}))
+vi.mock('../previewStorage', () => ({ uploadPreview: mockUploadPreview, removePreview: mockRemovePreview }))
+
+import { useCreations, useCreateCreation, useUpdateCreation, useDeleteCreation } from './creations'
 
 const mockRow = {
   id: '1',
@@ -12,7 +18,7 @@ const mockRow = {
   template_id: 'tmpl-1',
   status: 'final' as const,
   canvas_data: {},
-  exported_image_url: null,
+  preview_image_url: null,
   user_id: '00000000-0000-0000-0000-000000000001',
   created_at: '2026-01-01T00:00:00Z',
   updated_at: '2026-01-01T00:00:00Z',
@@ -20,13 +26,24 @@ const mockRow = {
 
 let lastInsertArgs: unknown
 let lastUpdateArgs: unknown
+let existingPreviewUrl: string | null = null
+
+beforeEach(() => {
+  mockUploadPreview.mockReset().mockResolvedValue(null)
+  mockRemovePreview.mockReset().mockResolvedValue(undefined)
+  existingPreviewUrl = null
+})
 
 vi.mock('../supabase', () => ({
   supabase: {
     from: () => ({
       select: () => ({
         order: () => Promise.resolve({ data: [mockRow], error: null }),
+        eq: () => ({
+          single: () => Promise.resolve({ data: { preview_image_url: existingPreviewUrl }, error: null }),
+        }),
       }),
+      delete: () => ({ eq: () => Promise.resolve({ error: null }) }),
       insert: (args: unknown) => {
         lastInsertArgs = args
         return {
@@ -84,6 +101,30 @@ describe('useCreateCreation', () => {
       canvas_data: { layers: [{ id: 'f1', label: 'Caption 1', x: 1, y: 2, width: 3, height: 4, fontSize: 5 }] },
     })
   })
+  it('renders no preview on its own: with no previewBlob it stores no preview URL', async () => {
+    const { result } = renderHook(() => useCreateCreation(), { wrapper })
+    result.current.mutate({ name: 'A', tags: [], sourceType: 'template', templateId: 't', canvasData: {} })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(lastInsertArgs).toMatchObject({ preview_image_url: null })
+  })
+
+  it('uploads the given previewBlob and stores its public URL as preview_image_url', async () => {
+    const blob = new Blob(['png'])
+    mockUploadPreview.mockResolvedValue('https://x/creation-previews/new.png')
+    const { result } = renderHook(() => useCreateCreation(), { wrapper })
+    result.current.mutate({ name: 'A', tags: [], sourceType: 'template', templateId: 't', canvasData: {}, previewBlob: blob })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(mockUploadPreview).toHaveBeenCalledWith(blob)
+    expect(lastInsertArgs).toMatchObject({ preview_image_url: 'https://x/creation-previews/new.png' })
+  })
+
+  it('still saves (with no preview) when the preview upload fails', async () => {
+    mockUploadPreview.mockResolvedValue(null) // uploadPreview swallows its own failures
+    const { result } = renderHook(() => useCreateCreation(), { wrapper })
+    result.current.mutate({ name: 'A', tags: [], sourceType: 'template', templateId: 't', canvasData: {}, previewBlob: new Blob(['png']) })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(lastInsertArgs).toMatchObject({ preview_image_url: null })
+  })
 })
 
 describe('useUpdateCreation', () => {
@@ -97,5 +138,42 @@ describe('useUpdateCreation', () => {
     })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(lastUpdateArgs).toMatchObject({ canvas_data: { layers: [] } })
+  })
+
+  it('leaves preview_image_url alone when saving without a new previewBlob', async () => {
+    const { result } = renderHook(() => useUpdateCreation(), { wrapper })
+    result.current.mutate({ id: '1', name: 'A', tags: [], canvasData: {} })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(lastUpdateArgs).not.toHaveProperty('preview_image_url')
+    expect(mockUploadPreview).not.toHaveBeenCalled()
+  })
+
+  it('stores the new preview and then deletes the one it replaced', async () => {
+    existingPreviewUrl = 'https://x/creation-previews/old.png'
+    mockUploadPreview.mockResolvedValue('https://x/creation-previews/new.png')
+    const { result } = renderHook(() => useUpdateCreation(), { wrapper })
+    result.current.mutate({ id: '1', name: 'A', tags: [], canvasData: {}, previewBlob: new Blob(['png']) })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(lastUpdateArgs).toMatchObject({ preview_image_url: 'https://x/creation-previews/new.png' })
+    expect(mockRemovePreview).toHaveBeenCalledWith('https://x/creation-previews/old.png')
+  })
+
+  it('keeps the old preview when the new upload fails, rather than losing both', async () => {
+    existingPreviewUrl = 'https://x/creation-previews/old.png'
+    mockUploadPreview.mockResolvedValue(null)
+    const { result } = renderHook(() => useUpdateCreation(), { wrapper })
+    result.current.mutate({ id: '1', name: 'A', tags: [], canvasData: {}, previewBlob: new Blob(['png']) })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(lastUpdateArgs).not.toHaveProperty('preview_image_url')
+    expect(mockRemovePreview).not.toHaveBeenCalled()
+  })
+})
+
+describe('useDeleteCreation', () => {
+  it("deletes the row and then its preview file", async () => {
+    const { result } = renderHook(() => useDeleteCreation(), { wrapper })
+    result.current.mutate({ id: '1', previewImageUrl: 'https://x/creation-previews/old.png' })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(mockRemovePreview).toHaveBeenCalledWith('https://x/creation-previews/old.png')
   })
 })

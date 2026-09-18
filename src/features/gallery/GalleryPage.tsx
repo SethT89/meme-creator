@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCreations, useDeleteCreation } from '../../lib/queries/creations'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
+import { canShareFile, downloadBlob, isMobileOrTabletDevice, sanitizeFilename, shareFile } from '../../lib/exportDelivery'
 import { GalleryCard } from './GalleryCard'
 
 export function GalleryPage() {
@@ -9,11 +10,42 @@ export function GalleryPage() {
   const deleteCreation = useDeleteCreation()
   const navigate = useNavigate()
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
+  const [downloadError, setDownloadError] = useState(false)
 
-  const pendingDeleteName = creations.find((c) => c.id === pendingDeleteId)?.name
+  const pendingDelete = creations.find((c) => c.id === pendingDeleteId)
+  const pendingDeleteName = pendingDelete?.name
+
+  // Downloads the creation's stored preview PNG — the same file its card
+  // thumbnail shows — using the same delivery rule as the editor's Export
+  // (native share sheet on a touch device that supports it, otherwise a
+  // plain download).
+  async function handleDownload(id: string) {
+    const creation = creations.find((c) => c.id === id)
+    if (!creation?.preview_image_url) return
+    setDownloadError(false)
+    try {
+      const response = await fetch(creation.preview_image_url)
+      if (!response.ok) throw new Error(`Preview fetch failed: ${response.status}`)
+      const blob = await response.blob()
+      const filename = `${sanitizeFilename(creation.name)}.png`
+      const file = new File([blob], filename, { type: 'image/png' })
+      if (isMobileOrTabletDevice() && canShareFile(file)) {
+        try {
+          await shareFile(file, filename)
+        } catch (err) {
+          // Cancelling the native share sheet rejects with AbortError — not a failure.
+          if ((err as Error)?.name !== 'AbortError') throw err
+        }
+      } else {
+        downloadBlob(blob, filename)
+      }
+    } catch {
+      setDownloadError(true)
+    }
+  }
 
   function confirmDelete() {
-    if (pendingDeleteId) deleteCreation.mutate(pendingDeleteId)
+    if (pendingDeleteId) deleteCreation.mutate({ id: pendingDeleteId, previewImageUrl: pendingDelete?.preview_image_url ?? null })
     setPendingDeleteId(null)
   }
 
@@ -24,6 +56,12 @@ export function GalleryPage() {
         {isLoading ? 'Loading…' : `${creations.length} ${creations.length === 1 ? 'meme' : 'memes'} saved`}
       </p>
 
+      {downloadError && (
+        <p role="alert" className="mb-3 text-sm text-red-600">
+          Download failed — try again.
+        </p>
+      )}
+
       {!isLoading && creations.length === 0 && (
         <p className="text-sm text-muted-foreground">Nothing saved yet — go make something.</p>
       )}
@@ -33,10 +71,7 @@ export function GalleryPage() {
           <GalleryCard
             key={creation.id}
             creation={creation}
-            onDownload={() => {
-              // Real download requires real canvas export rendering, which is
-              // out of scope for this plan (see the deferred list in the spec).
-            }}
+            onDownload={handleDownload}
             onOpen={(id) => navigate(`/editor/${id}`)}
             onDelete={(id) => setPendingDeleteId(id)}
           />
