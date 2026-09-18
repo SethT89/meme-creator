@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within, fireEvent } from '@testing-library/react'
+import { render, screen, within, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -645,6 +645,36 @@ describe('EditorPage', () => {
       expect(screen.queryByRole('status')).not.toBeInTheDocument()
     })
 
+    it('exports a freeform canvas too, rendered at the canvas\'s own size from its on-screen box', async () => {
+      renderEditor()
+      await screen.findByRole('button', { name: 'Two Buttons' })
+      await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+      await selectImageFile('vacation.png')
+      await screen.findByAltText('')
+      // Wait out the background upload — Export lives in a control that's
+      // only enabled once the layer's permanent URL has swapped in.
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Export' })).toBeEnabled())
+
+      await userEvent.click(screen.getByRole('button', { name: 'Export' }))
+
+      // MockImage reports 400x300 — the freeform canvas's own size. The
+      // first argument is the on-screen box (a <div>, not a template <img>).
+      expect(renderCreationToBlob).toHaveBeenCalledWith(
+        expect.any(HTMLDivElement),
+        { image_width: 400, image_height: 300 },
+        expect.arrayContaining([expect.objectContaining({ type: 'image' })]),
+      )
+      expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), 'vacation.png')
+    })
+
+    it('keeps Export disabled on the blank canvas', async () => {
+      renderEditor()
+      await screen.findByRole('button', { name: 'Two Buttons' })
+
+      expect(screen.getByRole('button', { name: 'Export' })).toBeDisabled()
+    })
+
     it('shows an error toast when rendering fails', async () => {
       vi.mocked(renderCreationToBlob).mockRejectedValue(new Error('boom'))
       renderEditor()
@@ -694,17 +724,24 @@ describe('EditorPage', () => {
       expect(images[1].parentElement).not.toHaveStyle({ width: '100%', height: '100%' })
     })
 
-    it('does nothing while a template is loaded', async () => {
+    it('while a template is loaded, adds the image as a layer on top of it and keeps the template', async () => {
       renderEditor()
       await userEvent.click(await screen.findByText('Two Buttons'))
+      const templateImg = await screen.findByAltText('Two Buttons')
 
       await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
       await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+      await selectImageFile('sticker.png')
 
-      // No hidden-input click side effect worth asserting on directly, but
-      // the template's own image must still be the only image on the page —
-      // no freeform canvas got created underneath it.
-      expect(screen.getAllByRole('img')).toHaveLength(1)
+      // The uploaded image is a layer over the template, not a replacement
+      // for it: the template's own <img> is still there, and its caption
+      // fields haven't been thrown away.
+      const layerImg = await screen.findByAltText('')
+      expect(layerImg).toHaveAttribute('src', expect.stringContaining('creation-assets'))
+      expect(screen.getByAltText('Two Buttons')).toBe(templateImg)
+      // Landed scaled-down and centered (MockImage is 400x300, the
+      // template is bigger), never filling the whole canvas.
+      expect(layerImg.parentElement).not.toHaveStyle({ width: '100%', height: '100%' })
     })
 
     it('shows the picked image immediately via a local preview, before the background upload finishes', async () => {
@@ -724,6 +761,8 @@ describe('EditorPage', () => {
       // blob: URL (only valid for this page session) can never get saved.
       expect(screen.getByRole('button', { name: 'Uploading image…' })).toBeDisabled()
       expect(screen.getByRole('button', { name: 'More options' })).toBeDisabled()
+      // Export too: its image layer's src is still the short-lived blob: URL.
+      expect(screen.getByRole('button', { name: 'Export' })).toBeDisabled()
     })
 
     it('reverts fully back to the blank canvas when the very first upload fails', async () => {

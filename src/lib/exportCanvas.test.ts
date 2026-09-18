@@ -78,6 +78,101 @@ describe('renderCreationToBlob', () => {
     vi.restoreAllMocks()
   })
 
+  it('draws image layers in layer order, sourcing only the cropped region of each', async () => {
+    class LoadingImage {
+      onload: (() => void) | null = null
+      onerror: (() => void) | null = null
+      crossOrigin = ''
+      set src(_: string) {
+        queueMicrotask(() => this.onload?.())
+      }
+    }
+    vi.stubGlobal('Image', LoadingImage)
+    const { ctx, calls } = mockContext()
+    stubCanvas(ctx)
+
+    const image = document.createElement('img')
+    const layers: Layer[] = [
+      {
+        type: 'image',
+        id: 'i1',
+        src: 'https://example.com/sticker.jpg',
+        naturalWidth: 400,
+        naturalHeight: 300,
+        x: 50,
+        y: 60,
+        width: 200,
+        height: 100,
+        cropX: 0.25,
+        cropY: 0.5,
+        cropWidth: 0.5,
+        cropHeight: 0.5,
+      },
+      { type: 'text', id: 't1', label: 'hi', x: 10, y: 20, width: 100, height: 50, fontSize: 22, heightAuto: true },
+    ]
+
+    await renderCreationToBlob(image, { image_width: 600, image_height: 908 }, layers)
+
+    const draws = calls.filter((c) => c.method === 'drawImage')
+    expect(draws).toHaveLength(2) // background + the image layer
+    // source rect = crop fractions * natural size; dest rect = the layer's own box
+    expect(draws[1].args.slice(1)).toEqual([100, 150, 200, 150, 50, 60, 200, 100])
+    // ...and it lands before the text layer's stroke, matching on-screen stacking.
+    expect(calls.findIndex((c) => c === draws[1])).toBeLessThan(calls.findIndex((c) => c.method === 'strokeText'))
+
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it('for a freeform canvas (a <div>, no background image), draws only the layers and sizes the canvas to the given size', async () => {
+    class LoadingImage {
+      onload: (() => void) | null = null
+      onerror: (() => void) | null = null
+      crossOrigin = ''
+      set src(_: string) {
+        queueMicrotask(() => this.onload?.())
+      }
+    }
+    vi.stubGlobal('Image', LoadingImage)
+    const { ctx, calls } = mockContext()
+    stubCanvas(ctx)
+    const createSpy = vi.spyOn(document, 'createElement')
+
+    const box = document.createElement('div')
+    const layers: Layer[] = [
+      { type: 'image', id: 'i1', src: 'https://example.com/a.jpg', naturalWidth: 400, naturalHeight: 300, x: 0, y: 0, width: 400, height: 300 },
+    ]
+
+    await renderCreationToBlob(box, { image_width: 400, image_height: 300 }, layers)
+
+    const canvas = createSpy.mock.results.map((r) => r.value).find((el) => el instanceof HTMLCanvasElement) as HTMLCanvasElement
+    expect([canvas.width, canvas.height]).toEqual([400, 300])
+    // No template background to draw — the only drawImage is the layer itself.
+    const draws = calls.filter((c) => c.method === 'drawImage')
+    expect(draws).toHaveLength(1)
+    expect(draws[0].args.slice(1)).toEqual([0, 0, 400, 300, 0, 0, 400, 300])
+
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  it("reads a freeform canvas box's displayed width from its bounding rect for the padding scale", async () => {
+    const layers: Layer[] = [{ type: 'text', id: 'f1', label: 'hi', x: 10, y: 100, width: 200, height: 50, fontSize: 20, heightAuto: true }]
+
+    async function baselineYAt(displayedWidth: number) {
+      const { ctx, calls } = mockContext()
+      stubCanvas(ctx)
+      const box = document.createElement('div')
+      box.getBoundingClientRect = () => ({ width: displayedWidth }) as DOMRect
+      await renderCreationToBlob(box, { image_width: 600, image_height: 908 }, layers)
+      vi.restoreAllMocks()
+      return calls.find((c) => c.method === 'fillText')!.args[2] as number
+    }
+
+    // Same doubling-scale relationship the template-image test above checks.
+    expect(await baselineYAt(300)).toBeGreaterThan(await baselineYAt(600))
+  })
+
   it('rejects when no 2D context is available', async () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
 

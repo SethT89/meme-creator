@@ -1,4 +1,5 @@
-import type { Layer, TextLayer } from './layers'
+import { getCropRect } from './layers'
+import type { ImageLayer, Layer, TextLayer } from './layers'
 
 // Matches this app's real on-screen CSS font stack (Tailwind's default
 // sans stack — confirmed live via getComputedStyle on an actual layer
@@ -22,6 +23,9 @@ const STROKE_RATIO = 0.24
 // exported padding matches what's actually shown, not a flat guess.
 const CSS_PADDING_PX = 4
 
+// Real-pixel size of the output. Named after the templates table's columns
+// so a template row can be passed straight in; a freeform canvas passes its
+// own canvasWidth/canvasHeight under the same two names.
 interface TemplateSize {
   image_width: number
   image_height: number
@@ -98,14 +102,47 @@ function drawLayer(ctx: CanvasRenderingContext2D, layer: TextLayer, scale: numbe
   })
 }
 
-// Renders a creation onto an off-screen canvas at the template's real pixel
+// crossOrigin is required, not cosmetic: without it a cross-origin image
+// (Supabase storage) taints the canvas and toBlob() then throws.
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error(`Failed to load image layer: ${src}`))
+    img.src = src
+  })
+}
+
+// Mirrors the on-screen crop rendering: the crop fractions pick the source
+// rectangle out of the full image, and the layer's own box is the dest.
+function drawImageLayer(ctx: CanvasRenderingContext2D, layer: ImageLayer, img: HTMLImageElement) {
+  const crop = getCropRect(layer)
+  ctx.drawImage(
+    img,
+    crop.x * layer.naturalWidth,
+    crop.y * layer.naturalHeight,
+    crop.width * layer.naturalWidth,
+    crop.height * layer.naturalHeight,
+    layer.x,
+    layer.y,
+    layer.width,
+    layer.height,
+  )
+}
+
+// Renders a creation onto an off-screen canvas at its real pixel
 // resolution (not the on-screen display size) and resolves a PNG Blob.
+// `display` is the on-screen element the creation is shown in: a template's
+// <img>, which is also drawn as the background, or a freeform canvas's
+// <div>, which has no background of its own — canvas space not covered by a
+// layer stays transparent, matching the checkerboard shown on screen.
 // Layer x/y/width/height/fontSize are already stored in that same
 // real-pixel coordinate space (see layers.ts), so no scaling math is
 // needed for those — only the fixed-px CSS padding needs to know the
 // display-to-real ratio, computed here.
-export function renderCreationToBlob(
-  image: HTMLImageElement,
+export async function renderCreationToBlob(
+  display: HTMLElement,
   templateRow: TemplateSize,
   layers: Layer[],
 ): Promise<Blob> {
@@ -114,24 +151,33 @@ export function renderCreationToBlob(
   canvas.height = templateRow.image_height
 
   const ctx = canvas.getContext('2d')
-  if (!ctx) return Promise.reject(new Error('Canvas 2D context is not available'))
+  if (!ctx) throw new Error('Canvas 2D context is not available')
 
-  ctx.drawImage(image, 0, 0, templateRow.image_width, templateRow.image_height)
-  // image.width is the on-screen rendered size in CSS px (not the source
-  // file's intrinsic resolution) when no width/height attribute overrides
-  // it — the same value EditorPage.tsx's own drag/resize math already
-  // uses as "displayScale". Falls back to no scaling (1) when that's
-  // unavailable (e.g. an image never attached to the DOM, as in this
-  // file's own tests).
-  const scale = image.width > 0 ? templateRow.image_width / image.width : 1
-  // Image layers can't actually appear on a template today (Upload Image is
-  // a no-op there — see EditorPage.tsx's handleAddImage), and freeform
-  // export isn't implemented yet, so this only ever draws TextLayers in
-  // practice. Guarding on the type here rather than typing the whole
-  // function around TextLayer[] keeps this function's own signature stable
-  // for when freeform export does land.
+  // Loaded up front (in parallel) so the draw loop below can stay
+  // synchronous and keep strict layer order.
+  const loadedImages = new Map<string, HTMLImageElement>()
+  await Promise.all(
+    layers.map(async (layer) => {
+      if (layer.type === 'image') loadedImages.set(layer.id, await loadImage(layer.src))
+    }),
+  )
+
+  if (display instanceof HTMLImageElement) {
+    ctx.drawImage(display, 0, 0, templateRow.image_width, templateRow.image_height)
+  }
+  // The element's on-screen rendered width in CSS px (not the source
+  // file's intrinsic resolution) — the same value EditorPage.tsx's own
+  // drag/resize math already uses as "displayScale". An <img>'s own .width
+  // is used for a template; a freeform <div> has none, so its measured box
+  // is used instead. Falls back to no scaling (1) when unavailable (e.g. an
+  // element never attached to the DOM, as in this file's own tests).
+  const displayWidth = display instanceof HTMLImageElement ? display.width : display.getBoundingClientRect().width
+  const scale = displayWidth > 0 ? templateRow.image_width / displayWidth : 1
+
+  // Drawn in layer order so stacking matches the on-screen editor.
   for (const layer of layers) {
     if (layer.type === 'text') drawLayer(ctx, layer, scale)
+    else drawImageLayer(ctx, layer, loadedImages.get(layer.id)!)
   }
 
   return new Promise((resolve, reject) => {

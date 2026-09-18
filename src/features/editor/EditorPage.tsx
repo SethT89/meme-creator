@@ -481,11 +481,11 @@ export function EditorPage() {
   // itself offers Photo Library / Camera / Files, and the OS handles any
   // permission prompt (e.g. iOS's photo-access dialog) automatically the
   // moment the user picks one, so no explicit permission request is needed
-  // here. A no-op while a template is loaded — Upload Image only applies to
-  // a freeform canvas (establishing one from blank, or adding to an
-  // existing one), never adds a layer on top of a template.
+  // here. With a template or freeform canvas already loaded it adds an
+  // image layer on top; from the blank canvas it establishes a new freeform
+  // canvas sized to the picked image.
   function handleAddImage() {
-    if (source?.type === 'template' || uploadingImage) return
+    if (uploadingImage) return
     fileInputRef.current?.click()
   }
 
@@ -498,12 +498,13 @@ export function EditorPage() {
       return
     }
     setUploadingImage(true)
-    // Captured up front: handleAddImage already blocks Upload Image while a
-    // template is loaded, so this can only be an existing freeform canvas or
-    // a fresh start — decided once here rather than re-derived after the
+    // Captured up front — decided once here rather than re-derived after the
     // (now-async, possibly slow) upload, since `source` itself may have
-    // changed by the time this promise settles.
-    const isFreshStart = !(source?.type === 'freeform' && source.canvasWidth && source.canvasHeight)
+    // changed by the time this promise settles. Any loaded canvas (template
+    // or freeform) means "add on top of it"; only the blank canvas is a
+    // fresh start.
+    const isFreshStart = !activeCanvas
+    const targetCanvas = activeCanvas
     let previewUrl: string | undefined
     let newLayerId: string | undefined
     try {
@@ -535,9 +536,10 @@ export function EditorPage() {
         // pattern, so switching away without adding anything else doesn't
         // spuriously prompt to discard work.
         baselineLayersRef.current = [newLayer]
-      } else if (source?.type === 'freeform' && source.canvasWidth && source.canvasHeight) {
-        // Adding to an existing canvas — auto-scaled to fit, canvas size untouched.
-        const newLayer = createImageLayer(previewUrl, width, height, { width: source.canvasWidth, height: source.canvasHeight })
+      } else if (targetCanvas) {
+        // Adding to an existing canvas (template or freeform) — auto-scaled
+        // to fit, canvas size untouched.
+        const newLayer = createImageLayer(previewUrl, width, height, targetCanvas)
         newLayerId = newLayer.id
         setLayers((prev) => [...prev, newLayer])
       }
@@ -836,10 +838,14 @@ export function EditorPage() {
   }
 
   async function handleExport() {
-    if (!source || source.type !== 'template' || !templateRow || !imgRef.current) return
+    if (!source || !activeCanvas || !imgRef.current) return
     setExporting(true)
     try {
-      const blob = await renderCreationToBlob(imgRef.current as HTMLImageElement, templateRow, layers)
+      const blob = await renderCreationToBlob(
+        imgRef.current,
+        { image_width: activeCanvas.width, image_height: activeCanvas.height },
+        layers,
+      )
       const filename = `${sanitizeFilename(savedMeta?.name ?? source.name)}.png`
       const file = new File([blob], filename, { type: 'image/png' })
       if (isMobileOrTabletDevice() && canShareFile(file)) {
@@ -890,7 +896,7 @@ export function EditorPage() {
             <Button
               size="sm"
               variant="outline"
-              disabled={source?.type !== 'template' || !templateRow || exporting}
+              disabled={!activeCanvas || exporting || uploadingImage}
               onClick={handleExport}
             >
               {exporting && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
