@@ -41,6 +41,16 @@ const savedRows: Array<{
 }> = []
 let nextId = 1
 
+// vi.hoisted so this vi.fn() exists before the hoisted vi.mock factory below
+// runs — lets individual tests override its resolved value (e.g. simulate a
+// failed upload) via vi.mocked(mockStorageUpload).mockResolvedValueOnce(...).
+const { mockStorageUpload } = vi.hoisted(() => ({
+  mockStorageUpload: vi.fn(
+    (): Promise<{ data: { path: string } | null; error: { message: string } | null }> =>
+      Promise.resolve({ data: { path: 'mock-path' }, error: null }),
+  ),
+}))
+
 vi.mock('../../lib/supabase', () => ({
   supabase: {
     from: (table: string) => {
@@ -97,7 +107,7 @@ vi.mock('../../lib/supabase', () => ({
     },
     storage: {
       from: (bucket: string) => ({
-        upload: (path: string) => Promise.resolve({ data: { path }, error: null }),
+        upload: mockStorageUpload,
         getPublicUrl: (path: string) => ({ data: { publicUrl: `https://example.com/${bucket}/${path}` } }),
       }),
     },
@@ -105,8 +115,8 @@ vi.mock('../../lib/supabase', () => ({
 }))
 
 // jsdom doesn't decode images or implement createObjectURL — stub both so
-// readImageDimensions (src/features/editor/EditorPage.tsx) resolves with a
-// fixed, known size instead of hanging forever.
+// prepareImageForUpload (src/lib/imageUpload.ts) resolves with a fixed,
+// known size instead of hanging forever.
 class MockImage {
   onload: (() => void) | null = null
   onerror: (() => void) | null = null
@@ -127,6 +137,12 @@ beforeEach(() => {
   vi.stubGlobal('Image', MockImage)
   URL.createObjectURL = vi.fn(() => 'blob:mock-url')
   URL.revokeObjectURL = vi.fn()
+  mockStorageUpload.mockReset().mockResolvedValue({ data: { path: 'mock-path' }, error: null })
+  // prepareImageForUpload also draws the picked file onto a canvas to
+  // resize/re-encode it before upload — jsdom doesn't implement real canvas
+  // rendering, so stub both the same way exportCanvas.test.ts already does.
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue({ drawImage: () => {} } as unknown as CanvasRenderingContext2D)
+  vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((cb: BlobCallback) => cb(new Blob(['fake'], { type: 'image/jpeg' })))
 })
 
 function renderEditor(initialPath = '/') {
@@ -689,6 +705,60 @@ describe('EditorPage', () => {
       // the template's own image must still be the only image on the page —
       // no freeform canvas got created underneath it.
       expect(screen.getAllByRole('img')).toHaveLength(1)
+    })
+
+    it('shows the picked image immediately via a local preview, before the background upload finishes', async () => {
+      renderEditor()
+      await screen.findByRole('button', { name: 'Two Buttons' })
+      // Never resolves within this test — isolates the moment right after
+      // the local preview appears but before the (still-pending) background
+      // upload would ever swap in the permanent URL.
+      mockStorageUpload.mockReset().mockReturnValue(new Promise(() => {}))
+
+      await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+      const img = await selectImageFile().then(() => screen.findByAltText(''))
+
+      expect(img).toHaveAttribute('src', 'blob:mock-url')
+      // Still mid-upload — the FAB stays busy and Save stays blocked so a
+      // blob: URL (only valid for this page session) can never get saved.
+      expect(screen.getByRole('button', { name: 'Uploading image…' })).toBeDisabled()
+      expect(screen.getByRole('button', { name: 'More options' })).toBeDisabled()
+    })
+
+    it('reverts fully back to the blank canvas when the very first upload fails', async () => {
+      mockStorageUpload.mockReset().mockResolvedValue({ data: null, error: { message: 'network error' } })
+      renderEditor()
+      await screen.findByRole('button', { name: 'Two Buttons' })
+
+      await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+      await selectImageFile()
+
+      expect(await screen.findByRole('status')).toHaveTextContent('Upload failed')
+      // The optimistic local-preview layer and the canvas it would have
+      // established are both rolled back — back to a genuinely blank
+      // canvas, not a mysterious empty freeform one.
+      expect(screen.queryByAltText('')).not.toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'More options' })).toBeDisabled()
+    })
+
+    it('removes just the new layer, leaving the canvas intact, when a second upload fails', async () => {
+      renderEditor()
+      await screen.findByRole('button', { name: 'Two Buttons' })
+      await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+      await selectImageFile('first.png')
+      await screen.findByAltText('')
+
+      mockStorageUpload.mockReset().mockResolvedValue({ data: null, error: { message: 'network error' } })
+      await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+      await selectImageFile('second.png')
+
+      expect(await screen.findByRole('status')).toHaveTextContent('Upload failed')
+      // The first image survives untouched — only the failed second one is rolled back.
+      expect(screen.getAllByAltText('')).toHaveLength(1)
     })
 
     it('Add Text now works once a freeform canvas exists (previously a hard no-op)', async () => {

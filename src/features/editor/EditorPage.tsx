@@ -24,6 +24,7 @@ import { layersFromCanvasData, applyDragDelta, applyResizeDelta, createBlankText
 import type { Layer, TextLayer, ResizeSign } from '../../lib/layers'
 import { renderCreationToBlob } from '../../lib/exportCanvas'
 import { canShareFile, downloadBlob, isMobileOrTabletDevice, sanitizeFilename, shareFile } from '../../lib/exportDelivery'
+import { prepareImageForUpload } from '../../lib/imageUpload'
 import { supabase } from '../../lib/supabase'
 import type { Json } from '../../types/database'
 
@@ -33,25 +34,6 @@ type Source =
   | null
 type SavedMeta = { id: string; name: string; tags: string[] } | null
 type FreeformCanvasData = { layers?: Layer[]; canvasWidth?: number; canvasHeight?: number }
-
-// Reads natural pixel dimensions from a locally-picked file, without waiting
-// on a network round trip to the (not-yet-uploaded) image — an object URL
-// resolves instantly since the bytes are already on disk.
-function readImageDimensions(file: File): Promise<{ width: number; height: number }> {
-  return new Promise((resolve, reject) => {
-    const objectUrl = URL.createObjectURL(file)
-    const img = new Image()
-    img.onload = () => {
-      URL.revokeObjectURL(objectUrl)
-      resolve({ width: img.naturalWidth, height: img.naturalHeight })
-    }
-    img.onerror = () => {
-      URL.revokeObjectURL(objectUrl)
-      reject(new Error('Could not read image dimensions'))
-    }
-    img.src = objectUrl
-  })
-}
 
 // The 8 resize handles: 4 corners (control both axes) and 4 edge midpoints
 // (control only their own axis). top/left as CSS percentages position each
@@ -444,25 +426,29 @@ export function EditorPage() {
       return
     }
     setUploadingImage(true)
+    // Captured up front: handleAddImage already blocks Upload Image while a
+    // template is loaded, so this can only be an existing freeform canvas or
+    // a fresh start — decided once here rather than re-derived after the
+    // (now-async, possibly slow) upload, since `source` itself may have
+    // changed by the time this promise settles.
+    const isFreshStart = !(source?.type === 'freeform' && source.canvasWidth && source.canvasHeight)
+    let previewUrl: string | undefined
+    let newLayerId: string | undefined
     try {
-      const { width, height } = await readImageDimensions(file)
-      const ext = file.name.split('.').pop()?.toLowerCase() || 'png'
-      const path = `${crypto.randomUUID()}.${ext}`
-      const { error: uploadError } = await supabase.storage.from('creation-assets').upload(path, file)
-      if (uploadError) throw uploadError
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from('creation-assets').getPublicUrl(path)
+      const { blob, width, height } = await prepareImageForUpload(file)
+      // Shown immediately via a local object URL — the canvas doesn't wait
+      // on any network round trip to reflect what the user just picked.
+      // Swapped for the permanent Supabase URL below once that upload
+      // (now a much smaller re-encoded JPEG, not the original file)
+      // finishes in the background.
+      previewUrl = URL.createObjectURL(blob)
 
-      if (source?.type === 'freeform' && source.canvasWidth && source.canvasHeight) {
-        // Adding to an existing canvas — auto-scaled to fit, canvas size untouched.
-        const newLayer = createImageLayer(publicUrl, width, height, { width: source.canvasWidth, height: source.canvasHeight })
-        setLayers((prev) => [...prev, newLayer])
-      } else {
+      if (isFreshStart) {
         // Starting fresh from the blank canvas — Upload Image is its entry
         // point. This first image defines the canvas's own size.
         const baseName = file.name.replace(/\.[^/.]+$/, '').trim() || 'Untitled'
-        const newLayer = createImageLayer(publicUrl, width, height)
+        const newLayer = createImageLayer(previewUrl, width, height)
+        newLayerId = newLayer.id
         setSource({ type: 'freeform', name: baseName, canvasWidth: width, canvasHeight: height })
         setSavedMeta(null)
         setSelectedFieldId(null)
@@ -475,10 +461,37 @@ export function EditorPage() {
         // pattern, so switching away without adding anything else doesn't
         // spuriously prompt to discard work.
         baselineLayersRef.current = [newLayer]
+      } else if (source?.type === 'freeform' && source.canvasWidth && source.canvasHeight) {
+        // Adding to an existing canvas — auto-scaled to fit, canvas size untouched.
+        const newLayer = createImageLayer(previewUrl, width, height, { width: source.canvasWidth, height: source.canvasHeight })
+        newLayerId = newLayer.id
+        setLayers((prev) => [...prev, newLayer])
       }
+
+      const path = `${crypto.randomUUID()}.jpg`
+      const { error: uploadError } = await supabase.storage.from('creation-assets').upload(path, blob)
+      if (uploadError) throw uploadError
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from('creation-assets').getPublicUrl(path)
+
+      setLayers((prev) => prev.map((l) => (l.id === newLayerId && l.type === 'image' ? { ...l, src: publicUrl } : l)))
     } catch {
       setToast({ message: 'Upload failed — try again.', isError: true })
+      // Roll back the optimistic local preview — its blob: src is only ever
+      // valid for this page session, so leaving it in place would silently
+      // break the moment the upload never actually completes.
+      if (isFreshStart) {
+        setSource(null)
+        setSavedMeta(null)
+        setLayers([])
+        setLayersSeededFor(undefined)
+        baselineLayersRef.current = []
+      } else if (newLayerId) {
+        setLayers((prev) => prev.filter((l) => l.id !== newLayerId))
+      }
     } finally {
+      if (previewUrl) URL.revokeObjectURL(previewUrl)
       setUploadingImage(false)
     }
   }
@@ -705,7 +718,11 @@ export function EditorPage() {
               Export
             </Button>
             <CanvasMoreMenu
-              disabled={source === null}
+              // Also disabled mid-upload: a newly-added image layer's src is
+              // a local blob: URL until the background upload finishes and
+              // swaps in the permanent one — saving before then would
+              // persist a URL that's meaningless after a reload.
+              disabled={source === null || uploadingImage}
               canSaveAs={savedMeta !== null}
               canAdjustCanvas={source?.type === 'freeform' && activeCanvas !== undefined}
               onSave={() => (savedMeta ? handleQuickSave() : openDialog('save'))}
