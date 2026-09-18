@@ -1,20 +1,19 @@
 import { useEffect, useState } from 'react'
-import { Plus, X, Type, Image as ImageIcon, Sticker, Smile, Loader2 } from 'lucide-react'
+import { Plus, X, Type, Image as ImageIcon, Loader2 } from 'lucide-react'
 
 // Top-to-bottom stacking order when the menu is open — closest to the main
 // FAB (rendered last, at the bottom of the stack) is the most likely first
 // action a user reaches for.
 const FAB_ACTIONS = [
-  { key: 'emoji', label: 'Add Emoji', Icon: Smile },
-  { key: 'sticker', label: 'Add Sticker', Icon: Sticker },
   { key: 'image', label: 'Upload Image', Icon: ImageIcon },
   { key: 'text', label: 'Add Text', Icon: Type },
 ] as const
 
 interface CanvasFabProps {
-  // Add Text and Upload Image are wired up to real actions — Add Emoji and
-  // Add Sticker stay no-op placeholders (see FAB_ACTIONS below) until each
-  // one has somewhere real to go.
+  // Add Text and Upload Image are the only actions. Add Emoji and Add
+  // Sticker entries were removed until those features are actually built;
+  // re-add them to FAB_ACTIONS (they were the two top entries, Emoji first)
+  // along with a handler here when they are.
   onAddText?: () => void
   onAddImage?: () => void
   // True while a picked file is uploading — the main toggle button shows a

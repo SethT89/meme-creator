@@ -86,7 +86,7 @@ export function CanvasMoreMenu({ disabled, canSaveAs, canAdjustCanvas, onSave, o
             onClick={() => runAndClose(onClearCanvas)}
             className="block w-full px-3 py-1.5 text-left text-sm text-red-600 hover:bg-red-50"
           >
-            Delete
+            Clear Canvas
           </button>
         </div>
       )}

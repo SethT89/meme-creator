@@ -515,13 +515,15 @@ describe('EditorPage', () => {
     expect(screen.getByRole('button', { name: 'More options' })).toBeDisabled()
   })
 
-  it('Delete in the more-options menu asks for confirmation, and only clears the canvas once confirmed', async () => {
+  it('Clear Canvas in the more-options menu asks for confirmation, and only clears the canvas once confirmed', async () => {
     renderEditor()
     await userEvent.click(await screen.findByText('Two Buttons'))
     expect(screen.getByRole('img', { name: 'Two Buttons' })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'More options' }))
-    await userEvent.click(screen.getByRole('menuitem', { name: 'Delete' }))
+    // The old "Delete" label was ambiguous next to a layer's own Delete.
+    expect(screen.queryByRole('menuitem', { name: 'Delete' })).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Clear Canvas' }))
     expect(screen.getByRole('dialog')).toBeInTheDocument()
     expect(screen.getByRole('img', { name: 'Two Buttons' })).toBeInTheDocument() // not cleared yet
 
@@ -530,15 +532,57 @@ describe('EditorPage', () => {
     expect(screen.getByRole('button', { name: 'More options' })).toBeDisabled()
   })
 
-  it('Delete in the more-options menu, cancel leaves the canvas untouched', async () => {
+  it('Clear Canvas in the more-options menu, cancel leaves the canvas untouched', async () => {
     renderEditor()
     await userEvent.click(await screen.findByText('Two Buttons'))
 
     await userEvent.click(screen.getByRole('button', { name: 'More options' }))
-    await userEvent.click(screen.getByRole('menuitem', { name: 'Delete' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Clear Canvas' }))
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }))
 
     expect(screen.getByRole('img', { name: 'Two Buttons' })).toBeInTheDocument()
+  })
+
+  it('Clear Canvas wipes everything at once: the template, its captions, and any image and text added on top', async () => {
+    renderEditor()
+    await userEvent.click(await screen.findByText('Two Buttons'))
+    await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+    await selectImageFile('sticker.png')
+    await screen.findByAltText('')
+    await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Add Text' }))
+    expect(screen.getByRole('img', { name: 'Two Buttons' })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Clear Canvas' }))
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Clear Canvas' }))
+
+    expect(screen.queryByRole('img', { name: 'Two Buttons' })).not.toBeInTheDocument()
+    expect(screen.queryByAltText('')).not.toBeInTheDocument() // the uploaded image layer
+    expect(screen.queryByText(/^Caption \d$/)).not.toBeInTheDocument()
+    expect(document.querySelector('[contenteditable]')).toBeNull() // the added text layer
+    expect(screen.getByRole('button', { name: 'More options' })).toBeDisabled() // back to a blank canvas
+  })
+
+  it('Clear Canvas also wipes a freeform canvas and all its images', async () => {
+    renderEditor()
+    await screen.findByRole('button', { name: 'Two Buttons' })
+    await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+    await selectImageFile('first.png')
+    await screen.findByAltText('')
+    await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+    await selectImageFile('second.png')
+    expect(await screen.findAllByAltText('')).toHaveLength(2)
+
+    await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Clear Canvas' }))
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Clear Canvas' }))
+
+    expect(screen.queryByAltText('')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'More options' })).toBeDisabled()
   })
 
   it('picking a template while the canvas is blank loads it with no confirmation', async () => {

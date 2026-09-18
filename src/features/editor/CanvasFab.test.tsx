@@ -10,30 +10,22 @@ describe('CanvasFab', () => {
     expect(screen.queryByRole('button', { name: 'Add Text' })).not.toBeInTheDocument()
   })
 
-  it('clicking the main FAB opens the menu with all 4 actions, in order Emoji, Sticker, Image, Text', async () => {
+  it('clicking the main FAB opens the menu with its 2 actions, in order Image, Text', async () => {
     render(<CanvasFab />)
     await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
 
     expect(screen.getByRole('button', { name: 'Close add menu' })).toBeInTheDocument()
     const expectedOrder = [
-      screen.getByRole('button', { name: 'Add Emoji' }),
-      screen.getByRole('button', { name: 'Add Sticker' }),
       screen.getByRole('button', { name: 'Upload Image' }),
       screen.getByRole('button', { name: 'Add Text' }),
     ]
     // DOM order matches the visual top-to-bottom stacking order (flex-col),
     // and the main toggle renders last (bottom of the stack).
-    expect(screen.getAllByRole('button').slice(0, 4)).toEqual(expectedOrder)
-  })
-
-  it('clicking a still-placeholder action button does not close the menu', async () => {
-    render(<CanvasFab />)
-    await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
-
-    await userEvent.click(screen.getByRole('button', { name: 'Add Sticker' }))
-
-    expect(screen.getByRole('button', { name: 'Add Sticker' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Close add menu' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button').slice(0, 2)).toEqual(expectedOrder)
+    // Emoji and sticker support aren't built yet, so their placeholder
+    // buttons are hidden rather than shown as dead controls.
+    expect(screen.queryByRole('button', { name: 'Add Emoji' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Add Sticker' })).not.toBeInTheDocument()
   })
 
   it('clicking Add Text calls onAddText and closes the menu', async () => {
