@@ -173,6 +173,87 @@ describe('renderCreationToBlob', () => {
     expect(await baselineYAt(300)).toBeGreaterThan(await baselineYAt(600))
   })
 
+  describe('render options (for small previews)', () => {
+    function recordingContext() {
+      const { ctx, calls } = mockContext()
+      const extra = ctx as typeof ctx & { scale: (...a: unknown[]) => void; fillRect: (...a: unknown[]) => void }
+      extra.scale = (...args: unknown[]) => calls.push({ method: 'scale', args })
+      extra.fillRect = (...args: unknown[]) => calls.push({ method: 'fillRect', args })
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(extra as unknown as CanvasRenderingContext2D)
+      const toBlob = vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (
+        this: HTMLCanvasElement,
+        cb: BlobCallback,
+        type?: string,
+      ) {
+        cb(new Blob(['fake'], { type: type ?? 'image/png' }))
+      })
+      return { calls, toBlob }
+    }
+    const canvasOf = (spy: { mock: { results: { value: unknown }[] } }) =>
+      spy.mock.results.map((r) => r.value).find((el) => el instanceof HTMLCanvasElement) as HTMLCanvasElement
+
+    it('renders full size as a PNG by default (what Export uses)', async () => {
+      const { toBlob } = recordingContext()
+      const createSpy = vi.spyOn(document, 'createElement')
+
+      const blob = await renderCreationToBlob(document.createElement('img'), { image_width: 3000, image_height: 2000 }, [])
+
+      const canvas = canvasOf(createSpy)
+      expect([canvas.width, canvas.height]).toEqual([3000, 2000])
+      expect(toBlob.mock.calls[0][1]).toBe('image/png')
+      expect(blob.type).toBe('image/png')
+      vi.restoreAllMocks()
+    })
+
+    it('downscales so the longer edge is at most maxEdge, keeping the aspect ratio', async () => {
+      const { calls } = recordingContext()
+      const createSpy = vi.spyOn(document, 'createElement')
+
+      await renderCreationToBlob(document.createElement('img'), { image_width: 3000, image_height: 2000 }, [], { maxEdge: 1200 })
+
+      const canvas = canvasOf(createSpy)
+      expect([canvas.width, canvas.height]).toEqual([1200, 800])
+      // Everything is drawn in real-pixel coordinates, so one scale() call shrinks it all.
+      expect(calls.find((c) => c.method === 'scale')?.args).toEqual([0.4, 0.4])
+      vi.restoreAllMocks()
+    })
+
+    it('never upscales a canvas that is already smaller than maxEdge', async () => {
+      const { calls } = recordingContext()
+      const createSpy = vi.spyOn(document, 'createElement')
+
+      await renderCreationToBlob(document.createElement('img'), { image_width: 600, image_height: 400 }, [], { maxEdge: 1200 })
+
+      const canvas = canvasOf(createSpy)
+      expect([canvas.width, canvas.height]).toEqual([600, 400])
+      expect(calls.some((c) => c.method === 'scale')).toBe(false)
+      vi.restoreAllMocks()
+    })
+
+    it('encodes as JPEG at the requested quality, on a white background (JPEG has no transparency)', async () => {
+      const { calls, toBlob } = recordingContext()
+
+      const blob = await renderCreationToBlob(document.createElement('div'), { image_width: 600, image_height: 400 }, [], {
+        type: 'image/jpeg',
+        quality: 0.8,
+      })
+
+      expect(toBlob.mock.calls[0][1]).toBe('image/jpeg')
+      expect(toBlob.mock.calls[0][2]).toBe(0.8)
+      expect(blob.type).toBe('image/jpeg')
+      // The white fill is painted before anything else.
+      expect(calls[0]).toMatchObject({ method: 'fillRect', args: [0, 0, 600, 400] })
+      vi.restoreAllMocks()
+    })
+
+    it('leaves a PNG transparent — no background fill', async () => {
+      const { calls } = recordingContext()
+      await renderCreationToBlob(document.createElement('div'), { image_width: 600, image_height: 400 }, [])
+      expect(calls.some((c) => c.method === 'fillRect')).toBe(false)
+      vi.restoreAllMocks()
+    })
+  })
+
   it('rejects when no 2D context is available', async () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
 

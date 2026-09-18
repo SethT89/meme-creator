@@ -25,6 +25,15 @@ const mockTemplate = {
   image_width: 600,
   image_height: 908,
 }
+// Like the "random image" templates in production: an image with no caption
+// fields of its own, so every piece of text on it is text the user added.
+const mockFieldlessTemplate = {
+  id: 'tmpl-2',
+  name: 'Plain Photo',
+  blank_image_url: 'https://example.com/plain.jpg',
+  image_width: 500,
+  image_height: 400,
+}
 const mockFields = [
   { id: 'f1', template_id: 'tmpl-1', label: 'Caption 1', position_x: 30, position_y: 50, width: 220, height: 110, font_size: 22, order_index: 0 },
   { id: 'f2', template_id: 'tmpl-1', label: 'Caption 2', position_x: 310, position_y: 70, width: 220, height: 110, font_size: 22, order_index: 1 },
@@ -40,6 +49,8 @@ const savedRows: Array<{
   canvas_data?: unknown
 }> = []
 let nextId = 1
+// Set by a test to make the next creations insert/update fail.
+let saveError: { message: string } | null = null
 
 // vi.hoisted so this vi.fn() exists before the hoisted vi.mock factory below
 // runs — lets individual tests override its resolved value (e.g. simulate a
@@ -55,13 +66,13 @@ vi.mock('../../lib/supabase', () => ({
   supabase: {
     from: (table: string) => {
       if (table === 'templates') {
-        return { select: () => Promise.resolve({ data: [mockTemplate], error: null }) }
+        return { select: () => Promise.resolve({ data: [mockTemplate, mockFieldlessTemplate], error: null }) }
       }
       if (table === 'template_fields') {
         return {
           select: () => ({
-            eq: () => ({
-              order: () => Promise.resolve({ data: mockFields, error: null }),
+            eq: (_col: string, templateId: string) => ({
+              order: () => Promise.resolve({ data: templateId === mockTemplate.id ? mockFields : [], error: null }),
             }),
           }),
         }
@@ -86,6 +97,7 @@ vi.mock('../../lib/supabase', () => ({
         insert: (values: { name: string; tags: string[]; source_type: string; template_id: string | null }) => ({
           select: () => ({
             single: () => {
+              if (saveError) return Promise.resolve({ data: null, error: saveError })
               const row = { id: String(nextId++), ...values }
               savedRows.push(row)
               return Promise.resolve({ data: row, error: null })
@@ -96,6 +108,7 @@ vi.mock('../../lib/supabase', () => ({
           eq: (_col: string, id: string) => ({
             select: () => ({
               single: () => {
+                if (saveError) return Promise.resolve({ data: null, error: saveError })
                 const row = savedRows.find((r) => r.id === id)!
                 Object.assign(row, values)
                 return Promise.resolve({ data: row, error: null })
@@ -134,6 +147,7 @@ async function selectImageFile(filename = 'photo.png') {
 }
 
 beforeEach(() => {
+  saveError = null
   vi.stubGlobal('Image', MockImage)
   URL.createObjectURL = vi.fn(() => 'blob:mock-url')
   URL.revokeObjectURL = vi.fn()
@@ -335,6 +349,82 @@ describe('EditorPage', () => {
     expect(screen.getByRole('menuitem', { name: 'Save' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Save As' })).toBeInTheDocument()
     expect(savedRows.at(-1)).toMatchObject({ name: savedName, source_type: 'template', template_id: 'tmpl-1' })
+  })
+
+  describe('reopening a saved template creation', () => {
+    const textLayer = (id: string, label: string) => ({ type: 'text', id, label, x: 10, y: 20, width: 200, height: 50, fontSize: 30, heightAuto: true })
+
+    it("shows the text the user added to a template that has no caption fields of its own", async () => {
+      savedRows.push({
+        id: 'plain-1',
+        name: 'Plain Photo 1',
+        tags: [],
+        source_type: 'template',
+        template_id: 'tmpl-2',
+        canvas_data: { layers: [textLayer('t1', 'I like to go fast')] },
+      })
+
+      renderEditor('/editor/plain-1')
+
+      expect(await screen.findByText('I like to go fast')).toBeInTheDocument()
+    })
+
+    it('shows every saved layer, in order, on a template that has no caption fields', async () => {
+      savedRows.push({
+        id: 'plain-2',
+        name: 'Plain Photo 2',
+        tags: [],
+        source_type: 'template',
+        template_id: 'tmpl-2',
+        canvas_data: { layers: [textLayer('t1', 'First'), textLayer('t2', 'Second')] },
+      })
+
+      renderEditor('/editor/plain-2')
+
+      await screen.findByText('First')
+      expect(screen.getAllByText(/^(First|Second)$/).map((el) => el.textContent)).toEqual(['First', 'Second'])
+    })
+
+    it('does not wipe the saved text when it is re-saved without any edits', async () => {
+      savedRows.push({
+        id: 'plain-3',
+        name: 'Plain Photo 3',
+        tags: [],
+        source_type: 'template',
+        template_id: 'tmpl-2',
+        canvas_data: { layers: [textLayer('t1', 'Keep me')] },
+      })
+      renderEditor('/editor/plain-3')
+      await screen.findByText('Keep me')
+
+      await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Save' }))
+
+      await waitFor(() => {
+        const saved = savedRows.find((r) => r.id === 'plain-3') as { canvas_data?: { layers?: { label: string }[] } }
+        expect(saved.canvas_data?.layers?.map((l) => l.label)).toEqual(['Keep me'])
+      })
+    })
+
+    it("keeps the captions deleted when a template's captions were all deleted before saving, instead of bringing the defaults back", async () => {
+      savedRows.push({ id: 'two-1', name: 'Two Buttons 9', tags: [], source_type: 'template', template_id: 'tmpl-1', canvas_data: { layers: [] } })
+
+      renderEditor('/editor/two-1')
+
+      expect(await screen.findByRole('img', { name: 'Two Buttons' })).toBeInTheDocument()
+      // Give the fields query time to resolve so this can't pass just by being early.
+      await waitFor(() => expect(screen.getByRole('button', { name: 'More options' })).toBeEnabled())
+      await new Promise((r) => setTimeout(r, 50))
+      expect(screen.queryByText(/^Caption \d$/)).not.toBeInTheDocument()
+    })
+
+    it('still shows the default captions when a template creation has no layer data saved at all', async () => {
+      savedRows.push({ id: 'two-2', name: 'Two Buttons 10', tags: [], source_type: 'template', template_id: 'tmpl-1', canvas_data: {} })
+
+      renderEditor('/editor/two-2')
+
+      expect(await screen.findByText('Caption 1')).toBeInTheDocument()
+    })
   })
 
   it('loads an existing template creation at /editor/:id with its real fields and image', async () => {
@@ -628,7 +718,7 @@ describe('EditorPage', () => {
     const previewOf = () => (savedRows.at(-1) as Saved).preview_image_url
 
     beforeEach(() => {
-      vi.mocked(renderCreationToBlob).mockReset().mockResolvedValue(new Blob(['png'], { type: 'image/png' }))
+      vi.mocked(renderCreationToBlob).mockReset().mockResolvedValue(new Blob(['jpg'], { type: 'image/jpeg' }))
     })
 
     async function saveFromDialog() {
@@ -643,11 +733,14 @@ describe('EditorPage', () => {
 
       await saveFromDialog()
 
-      await waitFor(() => expect(previewOf()).toMatch(/creation-previews\/.+\.png$/))
+      await waitFor(() => expect(previewOf()).toMatch(/creation-previews\/.+\.jpg$/))
+      // A small JPEG, not a full-size PNG: uploading the PNG of a big photo
+      // took ~15s, which made Save feel like it wasn't working.
       expect(renderCreationToBlob).toHaveBeenCalledWith(
         expect.any(HTMLImageElement),
         { image_width: 600, image_height: 908 },
         expect.arrayContaining([expect.objectContaining({ label: 'Caption 1' })]),
+        { maxEdge: 1200, type: 'image/jpeg', quality: 0.85 },
       )
     })
 
@@ -678,7 +771,12 @@ describe('EditorPage', () => {
       await saveFromDialog()
 
       await waitFor(() => expect(previewOf()).toMatch(/creation-previews/))
-      expect(renderCreationToBlob).toHaveBeenCalledWith(expect.any(HTMLDivElement), { image_width: 400, image_height: 300 }, expect.anything())
+      expect(renderCreationToBlob).toHaveBeenCalledWith(
+        expect.any(HTMLDivElement),
+        { image_width: 400, image_height: 300 },
+        expect.anything(),
+        { maxEdge: 1200, type: 'image/jpeg', quality: 0.85 },
+      )
     })
 
     it('still saves the creation, just without a preview, when rendering fails', async () => {
@@ -691,6 +789,93 @@ describe('EditorPage', () => {
       await waitFor(() => expect(savedRows.at(-1)).toMatchObject({ source_type: 'template', template_id: 'tmpl-1' }))
       expect(previewOf() ?? null).toBeNull()
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument() // the save completed and the dialog closed
+    })
+  })
+
+  describe('Save feedback (spinner and toast)', () => {
+    beforeEach(() => {
+      vi.mocked(renderCreationToBlob).mockReset().mockResolvedValue(new Blob(['jpg'], { type: 'image/jpeg' }))
+    })
+
+    // Holds the save open: the preview upload never finishes, so the save
+    // stays in flight until the test says otherwise.
+    const holdSaveOpen = () => mockStorageUpload.mockReset().mockReturnValue(new Promise(() => {}))
+
+    async function openSaveDialog() {
+      await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Save' }))
+      return screen.getByRole('dialog')
+    }
+
+    it('shows a spinner on the dialog Save button and disables it while saving, so it never looks stuck', async () => {
+      holdSaveOpen()
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+      const dialog = await openSaveDialog()
+
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+      const saving = within(screen.getByRole('dialog')).getByRole('button', { name: 'Saving…' })
+      expect(saving).toBeDisabled()
+      expect(saving.querySelector('svg.animate-spin')).not.toBeNull()
+      // Cancel can't take back a save that is already on its way.
+      expect(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' })).toBeDisabled()
+    })
+
+    it('closes the dialog and confirms with a toast once the save finishes', async () => {
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+      const dialog = await openSaveDialog()
+
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+      expect(await screen.findByRole('status')).toHaveTextContent('Saved')
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    })
+
+    it('a quick Save from the menu spins the menu button while saving, then toasts', async () => {
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+      const dialog = await openSaveDialog()
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+      await screen.findByRole('status')
+      await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument(), { timeout: 4000 })
+
+      holdSaveOpen()
+      await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Save' }))
+
+      const busy = screen.getByRole('button', { name: 'Saving…' })
+      expect(busy).toBeDisabled()
+      expect(busy.querySelector('svg.animate-spin')).not.toBeNull()
+    })
+
+    it('a quick Save toasts "Saved" when it finishes', async () => {
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+      const dialog = await openSaveDialog()
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+      await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument(), { timeout: 4000 })
+
+      await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Save' }))
+
+      expect(await screen.findByRole('status')).toHaveTextContent('Saved')
+      expect(screen.getByRole('button', { name: 'More options' })).toBeEnabled()
+    })
+
+    it('says so and lets you try again when the save fails, keeping the dialog open', async () => {
+      saveError = { message: 'boom' }
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+      const dialog = await openSaveDialog()
+
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+      expect(await screen.findByRole('status')).toHaveTextContent(/save failed/i)
+      const stillOpen = screen.getByRole('dialog')
+      expect(within(stillOpen).getByRole('button', { name: 'Save' })).toBeEnabled()
     })
   })
 

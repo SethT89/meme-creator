@@ -27,8 +27,10 @@ export function GalleryPage() {
       const response = await fetch(creation.preview_image_url)
       if (!response.ok) throw new Error(`Preview fetch failed: ${response.status}`)
       const blob = await response.blob()
-      const filename = `${sanitizeFilename(creation.name)}.png`
-      const file = new File([blob], filename, { type: 'image/png' })
+      // New previews are JPEGs; ones saved earlier are PNGs. Name the file for what it is.
+      const isJpeg = blob.type === 'image/jpeg'
+      const filename = `${sanitizeFilename(creation.name)}.${isJpeg ? 'jpg' : 'png'}`
+      const file = new File([blob], filename, { type: isJpeg ? 'image/jpeg' : 'image/png' })
       if (isMobileOrTabletDevice() && canShareFile(file)) {
         try {
           await shareFile(file, filename)

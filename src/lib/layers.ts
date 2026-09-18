@@ -280,7 +280,11 @@ export function reorderLayer(layers: Layer[], id: string, action: ReorderAction)
 
 export function layersFromCanvasData(canvasData: unknown, fallbackFields: TemplateFieldRow[]): Layer[] {
   const layers = (canvasData as { layers?: Layer[] } | null | undefined)?.layers
-  if (layers && layers.length > 0) {
+  // A saved layers array is the truth even when it's empty: it means every
+  // layer was deleted, and reopening must not bring the template's default
+  // captions back. Only a creation with no layers data at all (an older row,
+  // or none saved) derives them from the template's fields.
+  if (Array.isArray(layers)) {
     // Saved before heightAuto/type existed: default heightAuto to true and
     // type to 'text' — every layer saved before this feature shipped was a
     // text layer, so this is an unambiguous migration with no schema change.

@@ -160,8 +160,13 @@ describe('layersFromCanvasData', () => {
     expect(layersFromCanvasData({}, fallbackFields)).toEqual(initialLayersFromFields(fallbackFields))
   })
 
-  it('falls back to deriving from template fields when canvas_data.layers is an empty array', () => {
-    expect(layersFromCanvasData({ layers: [] }, fallbackFields)).toEqual(initialLayersFromFields(fallbackFields))
+  it('honors an empty saved layers array — every layer was deleted — instead of resurrecting the template defaults', () => {
+    expect(layersFromCanvasData({ layers: [] }, fallbackFields)).toEqual([])
+  })
+
+  it('falls back to deriving from template fields when canvas_data is missing entirely', () => {
+    expect(layersFromCanvasData(null, fallbackFields)).toEqual(initialLayersFromFields(fallbackFields))
+    expect(layersFromCanvasData(undefined, fallbackFields)).toEqual(initialLayersFromFields(fallbackFields))
   })
 })
 

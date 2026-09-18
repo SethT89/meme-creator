@@ -2,6 +2,11 @@ import { supabase } from './supabase'
 
 const BUCKET = 'creation-previews'
 
+// How a creation is rendered for its preview: a downscaled JPEG, not the
+// full-size PNG that Export produces. Uploading the PNG of a big photo took
+// ~15s (8 MB); this is ~100-300 KB, and plenty for a card thumbnail.
+export const PREVIEW_RENDER_OPTIONS = { maxEdge: 1200, type: 'image/jpeg', quality: 0.85 } as const
+
 // Everything here is best-effort by design: a creation's preview image is a
 // convenience (gallery thumbnail, Download) and must never be the reason a
 // Save or Delete fails.
@@ -12,8 +17,9 @@ const BUCKET = 'creation-previews'
 export async function uploadPreview(blob: Blob | null | undefined): Promise<string | null> {
   if (!blob) return null
   try {
-    const path = `${crypto.randomUUID()}.png`
-    const { error } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType: 'image/png' })
+    const contentType = blob.type === 'image/jpeg' ? 'image/jpeg' : 'image/png'
+    const path = `${crypto.randomUUID()}.${contentType === 'image/jpeg' ? 'jpg' : 'png'}`
+    const { error } = await supabase.storage.from(BUCKET).upload(path, blob, { contentType })
     if (error) return null
     return supabase.storage.from(BUCKET).getPublicUrl(path).data.publicUrl
   } catch {

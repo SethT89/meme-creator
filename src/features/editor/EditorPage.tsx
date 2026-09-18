@@ -40,6 +40,7 @@ import type { Layer, TextLayer, ImageLayer, ImageBounds, ResizeSign, ReorderActi
 import { renderCreationToBlob } from '../../lib/exportCanvas'
 import { canShareFile, downloadBlob, isMobileOrTabletDevice, sanitizeFilename, shareFile } from '../../lib/exportDelivery'
 import { prepareImageForUpload } from '../../lib/imageUpload'
+import { PREVIEW_RENDER_OPTIONS } from '../../lib/previewStorage'
 import { supabase } from '../../lib/supabase'
 import type { Json } from '../../types/database'
 
@@ -130,6 +131,9 @@ export function EditorPage() {
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
   const [pendingTemplate, setPendingTemplate] = useState<SelectedTemplate | null>(null)
   const [exporting, setExporting] = useState(false)
+  // True from the moment Save is clicked until it fully finishes — including
+  // rendering the preview and uploading it, which is most of the wait.
+  const [saving, setSaving] = useState(false)
   const [uploadingImage, setUploadingImage] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [toast, setToast] = useState<{ message: string; isError: boolean } | null>(null)
@@ -155,7 +159,7 @@ export function EditorPage() {
     return undefined
   }, [templateRow, source])
 
-  const { data: fields = [] } = useTemplateFields(source?.type === 'template' ? source.templateId : undefined)
+  const { data: fields = [], isSuccess: fieldsLoaded } = useTemplateFields(source?.type === 'template' ? source.templateId : undefined)
   const [layers, setLayers] = useState<Layer[]>([])
   const [layersSeededFor, setLayersSeededFor] = useState<string | undefined>(undefined)
   // Snapshot of `layers` exactly as seeded (fresh template defaults, or a
@@ -375,7 +379,12 @@ export function EditorPage() {
   // so they're seeded independently of source/savedMeta above rather than in
   // the same block — the seed key is the creation's id when reopening a saved
   // creation, or 'new:'+templateId when starting fresh.
-  if (source?.type === 'template' && fields.length > 0) {
+  // Waits for the fields query to have *resolved*, not for it to have returned
+  // something: a template can legitimately have no fields of its own (an image
+  // with no starter captions), and its saved layers — text the user added —
+  // must still load. Gating on fields.length > 0 silently dropped them, and a
+  // later Save then overwrote the stored layers with an empty list.
+  if (source?.type === 'template' && fieldsLoaded) {
     const seedKey = existingCreation?.id ?? 'new:' + source.templateId
     if (layersSeededFor !== seedKey) {
       setLayersSeededFor(seedKey)
@@ -858,6 +867,7 @@ export function EditorPage() {
         imgRef.current,
         { image_width: activeCanvas.width, image_height: activeCanvas.height },
         layers,
+        PREVIEW_RENDER_OPTIONS,
       )
       return blob ?? null
     } catch {
@@ -867,33 +877,44 @@ export function EditorPage() {
 
   async function handleDialogSave(name: string, tags: string[]) {
     const activeSource = source! // guaranteed non-null: Save to Gallery only renders once source is set
-    // Captured before the (async) render so the saved layers and the saved
-    // preview are guaranteed to describe the same moment.
-    const canvasData = buildCanvasData(activeSource)
-    const previewBlob = await renderPreviewBlob()
-    createCreation.mutate(
-      {
+    setSaving(true)
+    try {
+      // Captured before the (async) render so the saved layers and the saved
+      // preview are guaranteed to describe the same moment.
+      const canvasData = buildCanvasData(activeSource)
+      const previewBlob = await renderPreviewBlob()
+      const row = await createCreation.mutateAsync({
         name,
         tags,
         sourceType: activeSource.type,
         templateId: activeSource.type === 'template' ? activeSource.templateId : null,
         canvasData,
         previewBlob,
-      },
-      {
-        onSuccess: (row) => {
-          setSavedMeta({ id: row.id, name: row.name, tags: row.tags })
-          setDialogOpen(false)
-        },
-      },
-    )
+      })
+      setSavedMeta({ id: row.id, name: row.name, tags: row.tags })
+      setDialogOpen(false)
+      setToast({ message: 'Saved!', isError: false })
+    } catch {
+      // The dialog stays open, with its Save button live again, to retry.
+      setToast({ message: 'Save failed — try again.', isError: true })
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function handleQuickSave() {
     if (!savedMeta) return
-    const canvasData = buildCanvasData(source)
-    const previewBlob = await renderPreviewBlob()
-    updateCreation.mutate({ id: savedMeta.id, name: savedMeta.name, tags: savedMeta.tags, canvasData, previewBlob })
+    setSaving(true)
+    try {
+      const canvasData = buildCanvasData(source)
+      const previewBlob = await renderPreviewBlob()
+      await updateCreation.mutateAsync({ id: savedMeta.id, name: savedMeta.name, tags: savedMeta.tags, canvasData, previewBlob })
+      setToast({ message: 'Saved!', isError: false })
+    } catch {
+      setToast({ message: 'Save failed — try again.', isError: true })
+    } finally {
+      setSaving(false)
+    }
   }
 
   async function handleExport() {
@@ -967,6 +988,7 @@ export function EditorPage() {
               // swaps in the permanent one — saving before then would
               // persist a URL that's meaningless after a reload.
               disabled={source === null || uploadingImage}
+              saving={saving}
               canSaveAs={savedMeta !== null}
               canAdjustCanvas={source?.type === 'freeform' && activeCanvas !== undefined}
               onSave={() => (savedMeta ? handleQuickSave() : openDialog('save'))}
@@ -1404,6 +1426,7 @@ export function EditorPage() {
         defaultName={defaultName}
         defaultTags={defaultTags}
         existingCreations={allCreations}
+        saving={saving}
         onCancel={() => setDialogOpen(false)}
         onSave={handleDialogSave}
       />

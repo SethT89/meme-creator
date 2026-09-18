@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { Loader2 } from 'lucide-react'
+import { Chip } from '../../components/ui/chip'
 import { Button } from '../../components/ui/button'
 import { suggestTags } from '../../lib/creationNaming'
 
@@ -8,6 +10,9 @@ export interface SaveDialogProps {
   defaultName: string
   defaultTags: string[]
   existingCreations: Array<{ tags: string[] }>
+  // True while the save is in flight (rendering the preview, uploading, writing
+  // the row): the Save button spins and both buttons lock, so it never looks stuck.
+  saving?: boolean
   onCancel: () => void
   onSave: (name: string, tags: string[]) => void
 }
@@ -18,6 +23,7 @@ export function SaveDialog({
   defaultName,
   defaultTags,
   existingCreations,
+  saving = false,
   onCancel,
   onSave,
 }: SaveDialogProps) {
@@ -55,12 +61,7 @@ export function SaveDialog({
         <p className="mb-1 text-xs uppercase text-muted-foreground">Tags</p>
         <div className="mb-1 flex flex-wrap gap-1.5 rounded-md border border-border p-1.5">
           {tags.map((tag) => (
-            <span key={tag} className="rounded-full bg-muted px-2 py-0.5 text-xs">
-              {tag}{' '}
-              <button type="button" aria-label={`Remove ${tag}`} onClick={() => setTags(tags.filter((t) => t !== tag))}>
-                ✕
-              </button>
-            </span>
+            <Chip key={tag} label={tag} onRemove={() => setTags(tags.filter((t) => t !== tag))} />
           ))}
           <input
             className="min-w-[60px] flex-1 text-xs outline-none"
@@ -91,11 +92,12 @@ export function SaveDialog({
         {!tagInput && <div className="mb-3" />}
 
         <div className="flex justify-end gap-2">
-          <Button variant="outline" size="sm" onClick={onCancel}>
+          <Button variant="outline" size="sm" disabled={saving} onClick={onCancel}>
             Cancel
           </Button>
-          <Button size="sm" onClick={() => onSave(name, tags)}>
-            Save
+          <Button size="sm" disabled={saving} onClick={() => onSave(name, tags)}>
+            {saving && <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden="true" />}
+            {saving ? 'Saving…' : 'Save'}
           </Button>
         </div>
       </div>

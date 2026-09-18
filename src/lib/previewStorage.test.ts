@@ -41,18 +41,27 @@ describe('previewPathFromUrl', () => {
 })
 
 describe('uploadPreview', () => {
-  it('uploads the PNG to the creation-previews bucket and returns its public URL', async () => {
-    const blob = new Blob(['png'], { type: 'image/png' })
+  it('uploads a JPEG to the creation-previews bucket, named and labelled as a JPEG, and returns its public URL', async () => {
+    const blob = new Blob(['jpg'], { type: 'image/jpeg' })
 
     const url = await uploadPreview(blob)
 
     expect(mockFrom).toHaveBeenCalledWith('creation-previews')
-    expect(mockUpload).toHaveBeenCalledWith(expect.stringMatching(/^[0-9a-f-]{36}\.png$/), blob, { contentType: 'image/png' })
-    expect(url).toMatch(/\/creation-previews\/[0-9a-f-]{36}\.png$/)
+    expect(mockUpload).toHaveBeenCalledWith(expect.stringMatching(/^[0-9a-f-]{36}\.jpg$/), blob, { contentType: 'image/jpeg' })
+    expect(url).toMatch(/\/creation-previews\/[0-9a-f-]{36}\.jpg$/)
+  })
+
+  it('still names and labels a PNG as a PNG', async () => {
+    const blob = new Blob(['png'], { type: 'image/png' })
+
+    const url = await uploadPreview(blob)
+
+    expect(mockUpload).toHaveBeenCalledWith(expect.stringMatching(/\.png$/), blob, { contentType: 'image/png' })
+    expect(url).toMatch(/\.png$/)
   })
 
   it('uses a fresh path every time, so a re-save never serves a stale cached image', async () => {
-    const blob = new Blob(['png'], { type: 'image/png' })
+    const blob = new Blob(['jpg'], { type: 'image/jpeg' })
     const a = await uploadPreview(blob)
     const b = await uploadPreview(blob)
     expect(a).not.toBe(b)

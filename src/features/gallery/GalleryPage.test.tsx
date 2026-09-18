@@ -64,15 +64,15 @@ describe('GalleryPage', () => {
 
   it('navigates to the editor when "Open in editor" is clicked', async () => {
     renderGallery()
-    await userEvent.click(await screen.findByText('Drake 1'))
-    await userEvent.click(screen.getByText('Open in editor'))
+    await userEvent.click(await screen.findByRole('button', { name: 'More options for Drake 1' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Open in editor' }))
     // No router assertion needed beyond "didn't throw" — routing itself is covered by routes.test.tsx.
   })
 
   it('Delete asks for confirmation, and only removes the creation once confirmed', async () => {
     renderGallery()
-    await userEvent.click(await screen.findByText('Drake 1'))
-    await userEvent.click(screen.getByText('Delete'))
+    await userEvent.click(await screen.findByRole('button', { name: 'More options for Drake 1' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Delete' }))
 
     const dialog = screen.getByRole('dialog')
     expect(within(dialog).getByText(/Drake 1/)).toBeInTheDocument()
@@ -86,8 +86,8 @@ describe('GalleryPage', () => {
 
   it('Delete cancel leaves the creation in the list', async () => {
     renderGallery()
-    await userEvent.click(await screen.findByText('Drake 1'))
-    await userEvent.click(screen.getByText('Delete'))
+    await userEvent.click(await screen.findByRole('button', { name: 'More options for Drake 1' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Delete' }))
 
     await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }))
 
@@ -97,20 +97,29 @@ describe('GalleryPage', () => {
   describe('Download', () => {
     it("downloads the creation's saved preview as a PNG named after it", async () => {
       renderGallery()
-      await userEvent.click(await screen.findByText('Drake 1'))
-      await userEvent.click(screen.getByText('Download'))
+      await userEvent.click(await screen.findByRole('button', { name: 'More options for Drake 1' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Download' }))
 
       await waitFor(() => expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), 'Drake-1.png'))
       expect(fetch).toHaveBeenCalledWith(PREVIEW_URL)
       expect(shareFile).not.toHaveBeenCalled()
     })
 
+    it('names a JPEG preview .jpg and a PNG preview .png, matching what is actually downloaded', async () => {
+      vi.mocked(fetch).mockResolvedValue({ ok: true, blob: () => Promise.resolve(new Blob(['jpg'], { type: 'image/jpeg' })) } as Response)
+      renderGallery()
+      await userEvent.click(await screen.findByRole('button', { name: 'More options for Drake 1' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Download' }))
+
+      await waitFor(() => expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), 'Drake-1.jpg'))
+    })
+
     it('uses the native share sheet on a touch device that supports sharing files, like Export does', async () => {
       vi.mocked(canShareFile).mockReturnValue(true)
       vi.mocked(isMobileOrTabletDevice).mockReturnValue(true)
       renderGallery()
-      await userEvent.click(await screen.findByText('Drake 1'))
-      await userEvent.click(screen.getByText('Download'))
+      await userEvent.click(await screen.findByRole('button', { name: 'More options for Drake 1' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Download' }))
 
       await waitFor(() => expect(shareFile).toHaveBeenCalledWith(expect.any(File), 'Drake-1.png'))
       expect(downloadBlob).not.toHaveBeenCalled()
@@ -119,8 +128,8 @@ describe('GalleryPage', () => {
     it('says so when the download fails, instead of failing silently', async () => {
       vi.mocked(fetch).mockRejectedValue(new Error('network'))
       renderGallery()
-      await userEvent.click(await screen.findByText('Drake 1'))
-      await userEvent.click(screen.getByText('Download'))
+      await userEvent.click(await screen.findByRole('button', { name: 'More options for Drake 1' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Download' }))
 
       expect(await screen.findByRole('alert')).toHaveTextContent(/download failed/i)
       expect(downloadBlob).not.toHaveBeenCalled()
@@ -129,8 +138,8 @@ describe('GalleryPage', () => {
     it('treats a non-OK response as a failure too', async () => {
       vi.mocked(fetch).mockResolvedValue({ ok: false, blob: () => Promise.resolve(new Blob()) } as Response)
       renderGallery()
-      await userEvent.click(await screen.findByText('Drake 1'))
-      await userEvent.click(screen.getByText('Download'))
+      await userEvent.click(await screen.findByRole('button', { name: 'More options for Drake 1' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Download' }))
 
       expect(await screen.findByRole('alert')).toHaveTextContent(/download failed/i)
     })

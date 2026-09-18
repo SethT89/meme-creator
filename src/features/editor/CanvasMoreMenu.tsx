@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
-import { MoreVertical } from 'lucide-react'
+import { Loader2, MoreVertical } from 'lucide-react'
 
 interface CanvasMoreMenuProps {
   // True on a blank canvas — nothing to save or clear yet.
   disabled: boolean
+  // True while a save is in flight: the button shows a spinner instead of the
+  // dots, so a save started from this menu (which closes right away) is visible.
+  saving?: boolean
   // "Save As" only makes sense once there's an existing saved creation to
   // branch a copy from.
   canSaveAs: boolean
@@ -17,7 +20,7 @@ interface CanvasMoreMenuProps {
   onClearCanvas: () => void
 }
 
-export function CanvasMoreMenu({ disabled, canSaveAs, canAdjustCanvas, onSave, onSaveAs, onAdjustCanvas, onClearCanvas }: CanvasMoreMenuProps) {
+export function CanvasMoreMenu({ disabled, saving = false, canSaveAs, canAdjustCanvas, onSave, onSaveAs, onAdjustCanvas, onClearCanvas }: CanvasMoreMenuProps) {
   const [open, setOpen] = useState(false)
 
   // Closes on a click anywhere outside — the same document-level pattern
@@ -40,14 +43,14 @@ export function CanvasMoreMenu({ disabled, canSaveAs, canAdjustCanvas, onSave, o
     <div className="relative" onClick={(e) => e.stopPropagation()}>
       <button
         type="button"
-        aria-label="More options"
+        aria-label={saving ? 'Saving…' : 'More options'}
         aria-haspopup="menu"
         aria-expanded={open}
-        disabled={disabled}
+        disabled={disabled || saving}
         onClick={() => setOpen((prev) => !prev)}
         className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
       >
-        <MoreVertical className="h-4 w-4" />
+        {saving ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : <MoreVertical className="h-4 w-4" />}
       </button>
 
       {open && (

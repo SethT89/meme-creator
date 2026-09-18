@@ -131,8 +131,20 @@ function drawImageLayer(ctx: CanvasRenderingContext2D, layer: ImageLayer, img: H
   )
 }
 
+export interface RenderOptions {
+  // Shrink the output so its longer edge is at most this many pixels (never
+  // enlarges). Omit for full resolution.
+  maxEdge?: number
+  // Default 'image/png' (lossless, transparent where nothing is drawn). A
+  // JPEG is far smaller for photos but has no transparency, so it's rendered
+  // onto a white background.
+  type?: 'image/png' | 'image/jpeg'
+  quality?: number // JPEG only, 0-1
+}
+
 // Renders a creation onto an off-screen canvas at its real pixel
-// resolution (not the on-screen display size) and resolves a PNG Blob.
+// resolution (not the on-screen display size) and resolves a Blob — a
+// full-size PNG unless `options` say otherwise (see RenderOptions).
 // `display` is the on-screen element the creation is shown in: a template's
 // <img>, which is also drawn as the background, or a freeform canvas's
 // <div>, which has no background of its own — canvas space not covered by a
@@ -145,13 +157,26 @@ export async function renderCreationToBlob(
   display: HTMLElement,
   templateRow: TemplateSize,
   layers: Layer[],
+  options: RenderOptions = {},
 ): Promise<Blob> {
+  const { maxEdge, type = 'image/png', quality } = options
+  const longEdge = Math.max(templateRow.image_width, templateRow.image_height)
+  const outputScale = maxEdge && longEdge > maxEdge ? maxEdge / longEdge : 1
+
   const canvas = document.createElement('canvas')
-  canvas.width = templateRow.image_width
-  canvas.height = templateRow.image_height
+  canvas.width = Math.round(templateRow.image_width * outputScale)
+  canvas.height = Math.round(templateRow.image_height * outputScale)
 
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('Canvas 2D context is not available')
+
+  if (type === 'image/jpeg') {
+    ctx.fillStyle = 'white'
+    ctx.fillRect(0, 0, templateRow.image_width, templateRow.image_height)
+  }
+  // Everything below is drawn in the creation's real-pixel coordinates, so
+  // one uniform scale shrinks the whole render (text included) to fit.
+  if (outputScale !== 1) ctx.scale(outputScale, outputScale)
 
   // Loaded up front (in parallel) so the draw loop below can stay
   // synchronous and keep strict layer order.
@@ -181,9 +206,13 @@ export async function renderCreationToBlob(
   }
 
   return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => {
-      if (blob) resolve(blob)
-      else reject(new Error('Canvas toBlob failed'))
-    }, 'image/png')
+    canvas.toBlob(
+      (blob) => {
+        if (blob) resolve(blob)
+        else reject(new Error('Canvas toBlob failed'))
+      },
+      type,
+      quality,
+    )
   })
 }
