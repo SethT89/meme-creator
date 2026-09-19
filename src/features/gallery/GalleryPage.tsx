@@ -47,7 +47,14 @@ export function GalleryPage() {
   }
 
   function confirmDelete() {
-    if (pendingDeleteId) deleteCreation.mutate({ id: pendingDeleteId, previewImageUrl: pendingDelete?.preview_image_url ?? null })
+    if (pendingDeleteId) {
+      deleteCreation.mutate({
+        id: pendingDeleteId,
+        previewImageUrl: pendingDelete?.preview_image_url ?? null,
+        // So the delete can also free the images this creation uploaded.
+        canvasData: pendingDelete?.canvas_data ?? null,
+      })
+    }
     setPendingDeleteId(null)
   }
 

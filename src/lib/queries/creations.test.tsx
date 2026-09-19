@@ -2,11 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
-const { mockUploadPreview, mockRemovePreview } = vi.hoisted(() => ({
+const { mockUploadPreview, mockRemovePreview, mockRemoveUnusedAssets } = vi.hoisted(() => ({
   mockUploadPreview: vi.fn(),
   mockRemovePreview: vi.fn(),
+  mockRemoveUnusedAssets: vi.fn(),
 }))
 vi.mock('../previewStorage', () => ({ uploadPreview: mockUploadPreview, removePreview: mockRemovePreview }))
+vi.mock('../assetStorage', () => ({ removeUnusedAssets: mockRemoveUnusedAssets }))
 
 import { useCreations, useCreateCreation, useUpdateCreation, useDeleteCreation } from './creations'
 
@@ -27,11 +29,14 @@ const mockRow = {
 let lastInsertArgs: unknown
 let lastUpdateArgs: unknown
 let existingPreviewUrl: string | null = null
+let deleteError: { message: string } | null = null
 
 beforeEach(() => {
   mockUploadPreview.mockReset().mockResolvedValue(null)
   mockRemovePreview.mockReset().mockResolvedValue(undefined)
+  mockRemoveUnusedAssets.mockReset().mockResolvedValue(undefined)
   existingPreviewUrl = null
+  deleteError = null
 })
 
 vi.mock('../supabase', () => ({
@@ -43,7 +48,7 @@ vi.mock('../supabase', () => ({
           single: () => Promise.resolve({ data: { preview_image_url: existingPreviewUrl }, error: null }),
         }),
       }),
-      delete: () => ({ eq: () => Promise.resolve({ error: null }) }),
+      delete: () => ({ eq: () => Promise.resolve({ error: deleteError }) }),
       insert: (args: unknown) => {
         lastInsertArgs = args
         return {
@@ -170,10 +175,35 @@ describe('useUpdateCreation', () => {
 })
 
 describe('useDeleteCreation', () => {
-  it("deletes the row and then its preview file", async () => {
+  const canvasData = { layers: [{ type: 'image', id: 'i', src: 'https://x/creation-assets/up.jpg' }] }
+
+  it('deletes the row and then its preview file', async () => {
     const { result } = renderHook(() => useDeleteCreation(), { wrapper })
-    result.current.mutate({ id: '1', previewImageUrl: 'https://x/creation-previews/old.png' })
+    result.current.mutate({ id: '1', previewImageUrl: 'https://x/creation-previews/old.png', canvasData })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(mockRemovePreview).toHaveBeenCalledWith('https://x/creation-previews/old.png')
+  })
+
+  it("also cleans up the creation's uploaded images, passing along its canvas data", async () => {
+    const { result } = renderHook(() => useDeleteCreation(), { wrapper })
+    result.current.mutate({ id: '1', previewImageUrl: null, canvasData })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(mockRemoveUnusedAssets).toHaveBeenCalledWith(canvasData)
+  })
+
+  it('cleans up nothing when the row could not be deleted (the creation still exists and still uses them)', async () => {
+    deleteError = { message: 'boom' }
+    const { result } = renderHook(() => useDeleteCreation(), { wrapper })
+    result.current.mutate({ id: '1', previewImageUrl: 'https://x/creation-previews/old.png', canvasData })
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(mockRemovePreview).not.toHaveBeenCalled()
+    expect(mockRemoveUnusedAssets).not.toHaveBeenCalled()
+  })
+
+  it('still succeeds when the image cleanup fails, since a leftover file must never fail a delete', async () => {
+    mockRemoveUnusedAssets.mockRejectedValue(new Error('boom'))
+    const { result } = renderHook(() => useDeleteCreation(), { wrapper })
+    result.current.mutate({ id: '1', previewImageUrl: null, canvasData })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
   })
 })

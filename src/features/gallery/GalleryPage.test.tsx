@@ -11,9 +11,11 @@ vi.mock('../../lib/exportDelivery', () => ({
   downloadBlob: vi.fn(),
 }))
 import { canShareFile, isMobileOrTabletDevice, shareFile, downloadBlob } from '../../lib/exportDelivery'
+vi.mock('../../lib/assetStorage', () => ({ removeUnusedAssets: vi.fn().mockResolvedValue(undefined) }))
+import { removeUnusedAssets } from '../../lib/assetStorage'
 import { GalleryPage } from './GalleryPage'
 
-const rows: Array<{ id: string; name: string; tags: string[]; preview_image_url: string | null }> = []
+const rows: Array<{ id: string; name: string; tags: string[]; preview_image_url: string | null; canvas_data?: unknown }> = []
 
 vi.mock('../../lib/supabase', () => ({
   supabase: {
@@ -82,6 +84,33 @@ describe('GalleryPage', () => {
 
     expect(await screen.findByText(/nothing saved yet/i)).toBeInTheDocument()
     expect(screen.queryByText('Drake 1')).not.toBeInTheDocument()
+  })
+
+  it("frees the deleted creation's uploaded images, but only once the delete is confirmed", async () => {
+    const canvasData = { layers: [{ type: 'image', id: 'i', src: 'https://x/creation-assets/up.jpg' }] }
+    rows[0].canvas_data = canvasData
+    vi.mocked(removeUnusedAssets).mockClear()
+
+    renderGallery()
+    await userEvent.click(await screen.findByRole('button', { name: 'More options for Drake 1' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Delete' }))
+    expect(removeUnusedAssets).not.toHaveBeenCalled() // asking for confirmation isn't deleting
+
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }))
+
+    await waitFor(() => expect(removeUnusedAssets).toHaveBeenCalledWith(canvasData))
+  })
+
+  it('does not touch any uploaded images when the delete is cancelled', async () => {
+    rows[0].canvas_data = { layers: [{ type: 'image', id: 'i', src: 'https://x/creation-assets/up.jpg' }] }
+    vi.mocked(removeUnusedAssets).mockClear()
+
+    renderGallery()
+    await userEvent.click(await screen.findByRole('button', { name: 'More options for Drake 1' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Delete' }))
+    await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }))
+
+    expect(removeUnusedAssets).not.toHaveBeenCalled()
   })
 
   it('Delete cancel leaves the creation in the list', async () => {

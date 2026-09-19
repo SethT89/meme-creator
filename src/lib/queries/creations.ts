@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../supabase'
 import { removePreview, uploadPreview } from '../previewStorage'
+import { removeUnusedAssets } from '../assetStorage'
 import type { Tables, Json } from '../../types/database'
 
 export type CreationRow = Tables<'creations'>
@@ -115,11 +116,25 @@ export function useDeleteCreation() {
   const queryClient = useQueryClient()
   return useMutation({
     // The caller already has the row (it's showing it), so it passes the
-    // preview URL along rather than this hook re-fetching it just to clean up.
-    mutationFn: async ({ id, previewImageUrl }: { id: string; previewImageUrl: string | null }) => {
+    // preview URL and canvas data along rather than this hook re-fetching them
+    // just to clean up. Both cleanups run only once the row is really gone, and
+    // neither can fail the delete.
+    mutationFn: async ({
+      id,
+      previewImageUrl,
+      canvasData,
+    }: {
+      id: string
+      previewImageUrl: string | null
+      canvasData: Json | null
+    }) => {
       const { error } = await supabase.from('creations').delete().eq('id', id)
       if (error) throw error
       void removePreview(previewImageUrl)
+      // Frees the images this creation uploaded (unless another creation, e.g.
+      // a Save As copy, still uses them). The .catch is belt and braces:
+      // removeUnusedAssets already never throws.
+      void removeUnusedAssets(canvasData).catch(() => {})
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['creations'] })
