@@ -1954,6 +1954,9 @@ In `src/features/editor/EditorPage.test.tsx`, insert these tests immediately bef
     await userEvent.click(screen.getByRole('button', { name: 'Text color' }))
     await userEvent.click(screen.getByRole('tab', { name: 'Outline' }))
     await userEvent.click(screen.getByRole('button', { name: 'None' }))
+    // The popover stays open after a pick (it has role="dialog" too), so close
+    // it before looking for the Save dialog.
+    await userEvent.click(screen.getByRole('button', { name: 'Text color' }))
 
     await userEvent.click(screen.getByRole('button', { name: 'More options' }))
     await userEvent.click(screen.getByRole('menuitem', { name: 'Save' }))

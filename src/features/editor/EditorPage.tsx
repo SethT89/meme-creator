@@ -31,6 +31,8 @@ import {
   reorderLayer,
   resizeCanvas,
   layerClipPath,
+  resolveTextStyle,
+  textLayerCssStyle,
   getCropRect,
   getFullImageBounds,
   frameToCropFraction,
@@ -38,7 +40,7 @@ import {
   applyCropFrameResizeDelta,
   RESIZE_HANDLES,
 } from '../../lib/layers'
-import type { Layer, TextLayer, ImageLayer, ImageBounds, ResizeSign, ReorderAction } from '../../lib/layers'
+import type { Layer, TextLayer, ImageLayer, ImageBounds, ResizeSign, ReorderAction, TextStylePatch } from '../../lib/layers'
 import { renderCreationToBlob } from '../../lib/exportCanvas'
 import type { RenderOptions } from '../../lib/exportCanvas'
 import { canShareFile, downloadBlob, isMobileOrTabletDevice, sanitizeFilename, shareFile } from '../../lib/exportDelivery'
@@ -793,6 +795,10 @@ export function EditorPage() {
     setLayers((prev) => prev.map((l) => (l.id === layerId ? { ...l, fontSize: px } : l)))
   }
 
+  function handleChangeTextStyle(layerId: string, patch: TextStylePatch) {
+    setLayers((prev) => prev.map((l) => (l.id === layerId && l.type === 'text' ? { ...l, ...patch } : l)))
+  }
+
   // Stacking order is array order (see reorderLayer), so this is all
   // "Layering" needs — the selection stays put and the toolbar stays up.
   function handleReorderLayer(layerId: string, action: ReorderAction) {
@@ -1341,14 +1347,16 @@ export function EditorPage() {
                           // that entirely: React just discards the old subtree
                           // and mounts a fresh one.
                           key={isEditing ? `${layer.id}-edit` : `${layer.id}-view`}
-                          // White fill + black outline (classic meme-text look) —
-                          // legible regardless of what's underneath. Stroke width
-                          // in em so it scales with this box's own font-size
-                          // (itself already scaled to the image via cqw, see
-                          // fontSize below) without a second scaling calc.
-                          // paint-order draws the stroke behind the fill so it
-                          // doesn't eat into/thin the white letterforms.
-                          className={`absolute p-1 text-center font-bold text-white outline-none [-webkit-text-stroke:0.24em_black] [paint-order:stroke_fill] ${
+                          // Font, fill, outline and alignment come from the
+                          // layer's own style (textLayerCssStyle in the style
+                          // prop below); an unstyled legacy layer resolves to
+                          // the original white-fill/black-outline/centered look.
+                          // The outline is an em-sized -webkit-text-stroke so it
+                          // scales with this box's own font-size (itself already
+                          // scaled to the image via cqw). paint-order draws the
+                          // stroke behind the fill so it doesn't eat into/thin
+                          // the letterforms.
+                          className={`absolute p-1 outline-none [paint-order:stroke_fill] ${
                             isSelected ? 'border border-blue-500' : 'border border-transparent'
                           } ${isEditing ? 'cursor-text' : 'cursor-grab touch-none active:cursor-grabbing'} ${
                             isSelected && !isEditing ? 'hover:underline hover:decoration-blue-500' : ''
@@ -1357,6 +1365,7 @@ export function EditorPage() {
                             left: `${leftPct}%`,
                             top: `${topPct}%`,
                             width: `${widthPct}%`,
+                            ...textLayerCssStyle(layer),
                             // heightAuto (the default): no explicit height, so the
                             // box grows to fit wrapped text instead of clipping it
                             // — a bigger font or more text is never silently cut
@@ -1458,6 +1467,8 @@ export function EditorPage() {
                             <PropertyBar
                               fontSize={layer.type === 'text' ? layer.fontSize : undefined}
                               onChangeFontSize={layer.type === 'text' ? (px) => handleChangeFontSize(layer.id, px) : undefined}
+                              textStyle={layer.type === 'text' ? resolveTextStyle(layer) : undefined}
+                              onChangeTextStyle={layer.type === 'text' ? (patch) => handleChangeTextStyle(layer.id, patch) : undefined}
                               onCrop={layer.type === 'image' ? () => handleEnterCropMode(layer) : undefined}
                               onDelete={() => handleDeleteLayer(layer.id)}
                               onReorder={(action) => handleReorderLayer(layer.id, action)}

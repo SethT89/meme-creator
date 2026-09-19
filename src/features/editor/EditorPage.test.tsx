@@ -460,6 +460,95 @@ describe('EditorPage', () => {
     expect(savedField1?.fontSize).toBe(48)
   })
 
+  it('changing the fill color updates the selected box on screen', async () => {
+    renderEditor()
+    await userEvent.click(await screen.findByText('Two Buttons'))
+    await userEvent.click(screen.getByText('Caption 1'))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Text color' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Red' }))
+
+    expect(screen.getByText('Caption 1')).toHaveStyle({ color: '#e2553a' })
+    // ...and only that box.
+    expect(screen.getByText('Caption 2')).toHaveStyle({ color: '#ffffff' })
+  })
+
+  it('changing the font and alignment updates the selected box, and both persist on save', async () => {
+    renderEditor()
+    await userEvent.click(await screen.findByText('Two Buttons'))
+    await userEvent.click(screen.getByText('Caption 1'))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Font: Anton' }))
+    await userEvent.click(screen.getByRole('menuitemradio', { name: 'Bangers' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Text alignment' }))
+    await userEvent.click(screen.getByRole('menuitemradio', { name: 'Align left' }))
+
+    const box = screen.getByText('Caption 1')
+    expect(box.style.fontFamily).toContain('Bangers')
+    expect(box).toHaveStyle({ textAlign: 'left' })
+
+    await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Save' }))
+    const dialog = screen.getByRole('dialog')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+    const saved = savedRows.at(-1) as { canvas_data?: { layers?: { id: string; fontFamily?: string; textAlign?: string }[] } }
+    const savedField1 = saved.canvas_data?.layers?.find((l) => l.id === 'f1')
+    expect(savedField1?.fontFamily).toBe('bangers')
+    expect(savedField1?.textAlign).toBe('left')
+  })
+
+  it('turning the outline off is remembered as strokeColor null in the saved layer', async () => {
+    renderEditor()
+    await userEvent.click(await screen.findByText('Two Buttons'))
+    await userEvent.click(screen.getByText('Caption 1'))
+
+    await userEvent.click(screen.getByRole('button', { name: 'Text color' }))
+    await userEvent.click(screen.getByRole('tab', { name: 'Outline' }))
+    await userEvent.click(screen.getByRole('button', { name: 'None' }))
+    // The popover stays open after a pick (it has role="dialog" too), so close
+    // it before looking for the Save dialog.
+    await userEvent.click(screen.getByRole('button', { name: 'Text color' }))
+
+    await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Save' }))
+    const dialog = screen.getByRole('dialog')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+
+    const saved = savedRows.at(-1) as { canvas_data?: { layers?: { id: string; strokeColor?: string | null }[] } }
+    expect(saved.canvas_data?.layers?.find((l) => l.id === 'f1')?.strokeColor).toBeNull()
+  })
+
+  it('new text and template captions start in Anton, white with a black outline, centered', async () => {
+    renderEditor()
+    await userEvent.click(await screen.findByText('Two Buttons'))
+    await userEvent.click(screen.getByText('Caption 1'))
+
+    expect(screen.getByRole('button', { name: 'Font: Anton' })).toBeInTheDocument()
+    expect(screen.getByText('Caption 1').style.fontFamily).toContain('Anton')
+    expect(screen.getByText('Caption 1')).toHaveStyle({ color: '#ffffff', textAlign: 'center' })
+  })
+
+  it('a creation saved before text styling existed reopens looking exactly as it did (system font, white, centered)', async () => {
+    savedRows.push({
+      id: 'legacy-style-1',
+      name: 'Old Meme',
+      tags: [],
+      source_type: 'template',
+      template_id: 'tmpl-1',
+      canvas_data: { layers: [{ type: 'text', id: 'f1', label: 'Old caption', x: 30, y: 50, width: 220, height: 110, fontSize: 22, heightAuto: true }] },
+    })
+
+    renderEditor('/editor/legacy-style-1')
+    const box = await screen.findByText('Old caption')
+
+    expect(box.style.fontFamily).not.toContain('Anton')
+    expect(box).toHaveStyle({ color: '#ffffff', textAlign: 'center', fontWeight: '700' })
+
+    await userEvent.click(box)
+    expect(screen.getByRole('button', { name: 'Font: System' })).toBeInTheDocument()
+  })
+
   it('deleting the selected box removes it from the canvas', async () => {
     renderEditor()
     await userEvent.click(await screen.findByText('Two Buttons'))
@@ -1446,6 +1535,8 @@ describe('EditorPage', () => {
       expect(screen.getByText('Crop')).toBeInTheDocument()
       expect(screen.queryByText(/size:/i)).not.toBeInTheDocument()
       expect(screen.queryByText('Color')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Text color' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Text alignment' })).not.toBeInTheDocument()
     })
 
     it('clicking Crop in the property bar enters crop mode, same as double-clicking the image', async () => {
