@@ -1,22 +1,48 @@
 import { describe, it, expect, vi } from 'vitest'
+import type { ComponentProps } from 'react'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { PropertyBar } from './PropertyBar'
+import { resolveTextStyle } from '../../lib/layers'
+import type { TextLayer } from '../../lib/layers'
+import { SWATCH_ROWS } from '../../lib/palette'
+
+const textLayer: TextLayer = { type: 'text', id: 't', label: '', x: 0, y: 0, width: 10, height: 10, fontSize: 36, heightAuto: true, fontFamily: 'anton' }
+const textStyle = resolveTextStyle(textLayer)
+
+// A text layer's bar: every text prop supplied, each overridable per test.
+function renderTextBar(props: Partial<ComponentProps<typeof PropertyBar>> = {}) {
+  const onChangeTextStyle = vi.fn()
+  const onChangeFontSize = vi.fn()
+  render(
+    <PropertyBar
+      fontSize={36}
+      onChangeFontSize={onChangeFontSize}
+      textStyle={textStyle}
+      onChangeTextStyle={onChangeTextStyle}
+      onDelete={() => {}}
+      onReorder={() => {}}
+      canMoveForward
+      canMoveBackward
+      {...props}
+    />,
+  )
+  return { onChangeTextStyle, onChangeFontSize }
+}
 
 describe('PropertyBar', () => {
   it('shows the current size as a preset name when it matches one exactly', () => {
-    render(<PropertyBar fontSize={36} onChangeFontSize={() => {}} onDelete={() => {}} onReorder={() => {}} canMoveForward canMoveBackward />)
+    renderTextBar()
     expect(screen.getByText(/size: medium/i)).toBeInTheDocument()
   })
 
   it('shows the current size as a raw px label when it matches no preset', () => {
-    render(<PropertyBar fontSize={22} onChangeFontSize={() => {}} onDelete={() => {}} onReorder={() => {}} canMoveForward canMoveBackward />)
+    renderTextBar({ fontSize: 22 })
     expect(screen.getByText(/size: 22px/i)).toBeInTheDocument()
   })
 
   it("clicking a preset calls onChangeFontSize with that preset's px value and closes the panel", async () => {
-    const onChangeFontSize = vi.fn()
-    render(<PropertyBar fontSize={36} onChangeFontSize={onChangeFontSize} onDelete={() => {}} onReorder={() => {}} canMoveForward canMoveBackward />)
+    const { onChangeFontSize } = renderTextBar()
 
     await userEvent.click(screen.getByText(/size: medium/i))
     await userEvent.click(screen.getByText('Large'))
@@ -26,8 +52,7 @@ describe('PropertyBar', () => {
   })
 
   it('typing a custom size and pressing Enter calls onChangeFontSize with the clamped value', async () => {
-    const onChangeFontSize = vi.fn()
-    render(<PropertyBar fontSize={36} onChangeFontSize={onChangeFontSize} onDelete={() => {}} onReorder={() => {}} canMoveForward canMoveBackward />)
+    const { onChangeFontSize } = renderTextBar()
 
     await userEvent.click(screen.getByText(/size: medium/i))
     const input = screen.getByLabelText(/custom font size/i)
@@ -38,8 +63,7 @@ describe('PropertyBar', () => {
   })
 
   it('updates live as you type a custom size, before any blur or Enter', async () => {
-    const onChangeFontSize = vi.fn()
-    render(<PropertyBar fontSize={36} onChangeFontSize={onChangeFontSize} onDelete={() => {}} onReorder={() => {}} canMoveForward canMoveBackward />)
+    const { onChangeFontSize } = renderTextBar()
 
     await userEvent.click(screen.getByText(/size: medium/i))
     const input = screen.getByLabelText(/custom font size/i)
@@ -51,8 +75,7 @@ describe('PropertyBar', () => {
   })
 
   it('does not fire on an empty (in-progress) custom size value', async () => {
-    const onChangeFontSize = vi.fn()
-    render(<PropertyBar fontSize={36} onChangeFontSize={onChangeFontSize} onDelete={() => {}} onReorder={() => {}} canMoveForward canMoveBackward />)
+    const { onChangeFontSize } = renderTextBar()
 
     await userEvent.click(screen.getByText(/size: medium/i))
     const input = screen.getByLabelText(/custom font size/i)
@@ -65,21 +88,22 @@ describe('PropertyBar', () => {
 
   it('clicking Delete calls onDelete', async () => {
     const onDelete = vi.fn()
-    render(<PropertyBar fontSize={36} onChangeFontSize={() => {}} onDelete={onDelete} onReorder={() => {}} canMoveForward canMoveBackward />)
+    renderTextBar({ onDelete })
 
     await userEvent.click(screen.getByText('Delete'))
     expect(onDelete).toHaveBeenCalled()
   })
 
-  it('renders without Font/Size/Color controls when fontSize is not provided (an image layer), but still shows Delete', () => {
+  it('renders without any text controls when it is an image layer (no text props), but still shows Delete', () => {
     render(<PropertyBar onDelete={() => {}} onReorder={() => {}} canMoveForward canMoveBackward />)
-    expect(screen.queryByText('Font')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^font/i })).not.toBeInTheDocument()
     expect(screen.queryByText(/size:/i)).not.toBeInTheDocument()
-    expect(screen.queryByText('Color')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Text color' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Text alignment' })).not.toBeInTheDocument()
     expect(screen.getByText('Delete')).toBeInTheDocument()
   })
 
-  it('Delete still works when font controls are hidden', async () => {
+  it('Delete still works when text controls are hidden', async () => {
     const onDelete = vi.fn()
     render(<PropertyBar onDelete={onDelete} onReorder={() => {}} canMoveForward canMoveBackward />)
 
@@ -88,13 +112,15 @@ describe('PropertyBar', () => {
     expect(onDelete).toHaveBeenCalled()
   })
 
-  it('shows Color alongside Font/Size for a text layer', () => {
-    render(<PropertyBar fontSize={36} onChangeFontSize={() => {}} onDelete={() => {}} onReorder={() => {}} canMoveForward canMoveBackward />)
-    expect(screen.getByText('Color')).toBeInTheDocument()
+  it('shows font, color and alignment controls alongside size for a text layer', () => {
+    renderTextBar()
+    expect(screen.getByRole('button', { name: 'Font: Anton' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Text color' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Text alignment' })).toBeInTheDocument()
   })
 
   it('shows no Crop button when onCrop is not provided (a text layer)', () => {
-    render(<PropertyBar fontSize={36} onChangeFontSize={() => {}} onDelete={() => {}} onReorder={() => {}} canMoveForward canMoveBackward />)
+    renderTextBar()
     expect(screen.queryByText('Crop')).not.toBeInTheDocument()
   })
 
@@ -107,6 +133,83 @@ describe('PropertyBar', () => {
     await userEvent.click(cropButton)
 
     expect(onCrop).toHaveBeenCalled()
+  })
+
+  describe('font, color and alignment', () => {
+    it("shows the current font's name in that font, and \"System\" for a legacy layer", () => {
+      const { unmount } = render(
+        <PropertyBar fontSize={36} onChangeFontSize={() => {}} textStyle={textStyle} onChangeTextStyle={() => {}} onDelete={() => {}} onReorder={() => {}} canMoveForward canMoveBackward />,
+      )
+      expect(screen.getByRole('button', { name: 'Font: Anton' }).style.fontFamily).toContain('Anton')
+      unmount()
+
+      const legacyStyle = resolveTextStyle({ ...textLayer, fontFamily: undefined })
+      renderTextBar({ textStyle: legacyStyle })
+      expect(screen.getByRole('button', { name: 'Font: System' })).toBeInTheDocument()
+    })
+
+    it('choosing a font sends it as a style patch and closes the list', async () => {
+      const { onChangeTextStyle } = renderTextBar()
+      await userEvent.click(screen.getByRole('button', { name: 'Font: Anton' }))
+      await userEvent.click(screen.getByRole('menuitemradio', { name: 'Bebas Neue' }))
+
+      expect(onChangeTextStyle).toHaveBeenCalledWith({ fontFamily: 'bebas-neue' })
+      expect(screen.queryByRole('menu', { name: 'Fonts' })).not.toBeInTheDocument()
+    })
+
+    it('choosing an alignment sends it as a style patch and closes the menu', async () => {
+      const { onChangeTextStyle } = renderTextBar()
+      await userEvent.click(screen.getByRole('button', { name: 'Text alignment' }))
+      await userEvent.click(screen.getByRole('menuitemradio', { name: 'Align right' }))
+
+      expect(onChangeTextStyle).toHaveBeenCalledWith({ textAlign: 'right' })
+      expect(screen.queryByRole('menu', { name: 'Text alignment options' })).not.toBeInTheDocument()
+    })
+
+    it('picking a fill color sends it as a style patch and leaves the popover open', async () => {
+      const { onChangeTextStyle } = renderTextBar()
+      await userEvent.click(screen.getByRole('button', { name: 'Text color' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Red' }))
+
+      const red = SWATCH_ROWS.flat().find((s) => s.name === 'Red')!.hex
+      expect(onChangeTextStyle).toHaveBeenCalledWith({ color: red })
+      expect(screen.getByRole('dialog', { name: 'Text color' })).toBeInTheDocument()
+    })
+
+    it('turning the outline off sends strokeColor: null', async () => {
+      const { onChangeTextStyle } = renderTextBar()
+      await userEvent.click(screen.getByRole('button', { name: 'Text color' }))
+      await userEvent.click(screen.getByRole('tab', { name: 'Outline' }))
+      await userEvent.click(screen.getByRole('button', { name: 'None' }))
+
+      expect(onChangeTextStyle).toHaveBeenCalledWith({ strokeColor: null })
+    })
+
+    it('only ever has one menu open: opening another closes the current one', async () => {
+      renderTextBar()
+      await userEvent.click(screen.getByRole('button', { name: 'Font: Anton' }))
+      expect(screen.getByRole('menu', { name: 'Fonts' })).toBeInTheDocument()
+
+      await userEvent.click(screen.getByRole('button', { name: 'Text color' }))
+      expect(screen.queryByRole('menu', { name: 'Fonts' })).not.toBeInTheDocument()
+      expect(screen.getByRole('dialog', { name: 'Text color' })).toBeInTheDocument()
+
+      await userEvent.click(screen.getByText(/size: medium/i))
+      expect(screen.queryByRole('dialog', { name: 'Text color' })).not.toBeInTheDocument()
+      expect(screen.getByLabelText(/custom font size/i)).toBeInTheDocument()
+
+      await userEvent.click(screen.getByRole('button', { name: 'Layering' }))
+      expect(screen.queryByLabelText(/custom font size/i)).not.toBeInTheDocument()
+      expect(screen.getAllByRole('menuitem')).toHaveLength(4)
+    })
+
+    it("clicking an open menu's own button closes it", async () => {
+      renderTextBar()
+      await userEvent.click(screen.getByRole('button', { name: 'Text alignment' }))
+      expect(screen.getByRole('menu', { name: 'Text alignment options' })).toBeInTheDocument()
+      await userEvent.click(screen.getByRole('button', { name: 'Text alignment' }))
+      expect(screen.queryByRole('menu', { name: 'Text alignment options' })).not.toBeInTheDocument()
+    })
   })
 
   describe('Layering', () => {
@@ -167,7 +270,7 @@ describe('PropertyBar', () => {
       expect(screen.getByRole('menuitem', { name: /bring forward/i })).toBeEnabled()
     })
 
-    it('shows Layering on an image layer\'s toolbar too', () => {
+    it("shows Layering on an image layer's toolbar too", () => {
       render(<PropertyBar onCrop={() => {}} onDelete={() => {}} onReorder={() => {}} canMoveForward canMoveBackward />)
       expect(screen.getByRole('button', { name: 'Layering' })).toBeInTheDocument()
     })

@@ -1,13 +1,18 @@
 import { useState } from 'react'
 import { SIZE_PRESETS, clampFontSize, sizeLabel } from '../../lib/layers'
-import type { ReorderAction } from '../../lib/layers'
+import type { ReorderAction, ResolvedTextStyle, TextStylePatch } from '../../lib/layers'
+import { AlignPicker } from './AlignPicker'
+import { ColorPicker } from './ColorPicker'
+import { FontPicker } from './FontPicker'
 
 interface PropertyBarProps {
-  // Present for a text layer, omitted for an image layer — the Font/Size
-  // (and Color, which only makes sense alongside text) section only
-  // renders when both are given.
+  // The four props below are present for a text layer and omitted for an
+  // image layer — the Font/Size/Color/Align controls only render when all
+  // four are given.
   fontSize?: number
   onChangeFontSize?: (px: number) => void
+  textStyle?: ResolvedTextStyle
+  onChangeTextStyle?: (patch: TextStylePatch) => void
   // Present for an image layer, omitted for a text layer — the Crop
   // button only renders when given.
   onCrop?: () => void
@@ -30,9 +35,24 @@ const LAYERING_OPTIONS: { action: ReorderAction; label: string; hint: string; ne
   { action: 'back', label: 'Send to back', hint: '⌘⇧[', needs: 'backward' },
 ]
 
-export function PropertyBar({ fontSize, onChangeFontSize, onCrop, onDelete, onReorder, canMoveForward, canMoveBackward }: PropertyBarProps) {
-  const [panelOpen, setPanelOpen] = useState(false)
-  const [layeringOpen, setLayeringOpen] = useState(false)
+type MenuName = 'font' | 'size' | 'color' | 'align' | 'layering'
+
+const DIVIDER = <div className="h-4 w-px bg-neutral-700" />
+
+export function PropertyBar({
+  fontSize,
+  onChangeFontSize,
+  textStyle,
+  onChangeTextStyle,
+  onCrop,
+  onDelete,
+  onReorder,
+  canMoveForward,
+  canMoveBackward,
+}: PropertyBarProps) {
+  // One menu open at a time: opening any menu replaces whichever was open.
+  const [openMenu, setOpenMenu] = useState<MenuName | null>(null)
+  const toggleMenu = (name: MenuName) => setOpenMenu((current) => (current === name ? null : name))
 
   function applyCustomSize(raw: string) {
     // Empty is a normal in-progress state (cleared the field to type a
@@ -45,21 +65,29 @@ export function PropertyBar({ fontSize, onChangeFontSize, onCrop, onDelete, onRe
   }
 
   return (
-    <div className="flex items-center gap-1 rounded-full bg-neutral-900 px-2 py-1.5 text-white shadow-lg">
-      {fontSize !== undefined && onChangeFontSize !== undefined && (
+    // flex-wrap + a viewport-relative max width: on a narrow screen the
+    // (now wider) bar wraps onto a second row instead of running off-screen.
+    <div className="flex max-w-[calc(100vw-1rem)] flex-wrap items-center justify-center gap-1 rounded-3xl bg-neutral-900 px-2 py-1.5 text-white shadow-lg">
+      {fontSize !== undefined && onChangeFontSize !== undefined && textStyle !== undefined && onChangeTextStyle !== undefined && (
         <>
-          <span className="rounded-full px-2 py-1 text-xs">Font</span>
-          <div className="h-4 w-px bg-neutral-700" />
+          <FontPicker
+            fontId={textStyle.fontId}
+            fontFamily={textStyle.fontFamily}
+            fontWeight={textStyle.fontWeight}
+            open={openMenu === 'font'}
+            onToggle={() => toggleMenu('font')}
+            onChange={(id) => {
+              onChangeTextStyle({ fontFamily: id })
+              setOpenMenu(null)
+            }}
+          />
+          {DIVIDER}
 
           <div className="relative">
-            <button
-              type="button"
-              className="rounded-full px-2 py-1 text-xs"
-              onClick={() => setPanelOpen((open) => !open)}
-            >
+            <button type="button" className="rounded-full px-2 py-1 text-xs" onClick={() => toggleMenu('size')}>
               Size: {sizeLabel(fontSize)}
             </button>
-            {panelOpen && (
+            {openMenu === 'size' && (
               <div className="absolute bottom-full left-1/2 mb-2 w-40 -translate-x-1/2 rounded-lg bg-neutral-900 p-1.5 shadow-lg">
                 {SIZE_PRESETS.map((preset) => (
                   <div
@@ -67,7 +95,7 @@ export function PropertyBar({ fontSize, onChangeFontSize, onCrop, onDelete, onRe
                     className="cursor-pointer rounded-md px-2 py-1.5 text-sm hover:bg-neutral-700"
                     onClick={() => {
                       onChangeFontSize(preset.px)
-                      setPanelOpen(false)
+                      setOpenMenu(null)
                     }}
                   >
                     {preset.label}
@@ -92,7 +120,7 @@ export function PropertyBar({ fontSize, onChangeFontSize, onCrop, onDelete, onRe
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         applyCustomSize(e.currentTarget.value)
-                        setPanelOpen(false)
+                        setOpenMenu(null)
                       }
                     }}
                   />
@@ -100,8 +128,25 @@ export function PropertyBar({ fontSize, onChangeFontSize, onCrop, onDelete, onRe
               </div>
             )}
           </div>
-          <span className="rounded-full px-2 py-1 text-xs">Color</span>
-          <div className="h-4 w-px bg-neutral-700" />
+          {DIVIDER}
+
+          <ColorPicker
+            color={textStyle.color}
+            strokeColor={textStyle.strokeColor}
+            open={openMenu === 'color'}
+            onToggle={() => toggleMenu('color')}
+            onChange={onChangeTextStyle}
+          />
+          <AlignPicker
+            value={textStyle.textAlign}
+            open={openMenu === 'align'}
+            onToggle={() => toggleMenu('align')}
+            onChange={(textAlign) => {
+              onChangeTextStyle({ textAlign })
+              setOpenMenu(null)
+            }}
+          />
+          {DIVIDER}
         </>
       )}
 
@@ -110,7 +155,7 @@ export function PropertyBar({ fontSize, onChangeFontSize, onCrop, onDelete, onRe
           <button type="button" className="rounded-full px-2 py-1 text-xs" onClick={onCrop}>
             Crop
           </button>
-          <div className="h-4 w-px bg-neutral-700" />
+          {DIVIDER}
         </>
       )}
 
@@ -119,12 +164,12 @@ export function PropertyBar({ fontSize, onChangeFontSize, onCrop, onDelete, onRe
           type="button"
           className="rounded-full px-2 py-1 text-xs"
           aria-haspopup="menu"
-          aria-expanded={layeringOpen}
-          onClick={() => setLayeringOpen((open) => !open)}
+          aria-expanded={openMenu === 'layering'}
+          onClick={() => toggleMenu('layering')}
         >
           Layering
         </button>
-        {layeringOpen && (
+        {openMenu === 'layering' && (
           <div role="menu" className="absolute bottom-full left-1/2 mb-2 w-48 -translate-x-1/2 rounded-lg bg-neutral-900 p-1.5 shadow-lg">
             {LAYERING_OPTIONS.map((option) => (
               <button
@@ -135,7 +180,7 @@ export function PropertyBar({ fontSize, onChangeFontSize, onCrop, onDelete, onRe
                 className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-neutral-700 disabled:cursor-default disabled:text-neutral-500 disabled:hover:bg-transparent"
                 onClick={() => {
                   onReorder(option.action)
-                  setLayeringOpen(false)
+                  setOpenMenu(null)
                 }}
               >
                 {option.label}
@@ -147,7 +192,7 @@ export function PropertyBar({ fontSize, onChangeFontSize, onCrop, onDelete, onRe
           </div>
         )}
       </div>
-      <div className="h-4 w-px bg-neutral-700" />
+      {DIVIDER}
       <button type="button" className="rounded-full px-2 py-1 text-xs text-red-400" onClick={onDelete}>
         Delete
       </button>
