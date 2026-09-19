@@ -66,7 +66,9 @@ describe('renderCreationToBlob', () => {
     const templateRow = { image_width: 600, image_height: 908 }
     const layers: Layer[] = [{ type: 'text', id: 'f1', label: 'hi', x: 10, y: 20, width: 100, height: 50, fontSize: 22, heightAuto: true }]
 
-    const blob = await renderCreationToBlob(image, templateRow, layers)
+    const blob = await renderCreationToBlob(document.createElement('div'), templateRow, layers, {
+      background: { image, x: 0, y: 0, width: 600, height: 908 },
+    })
 
     expect(blob.type).toBe('image/png')
     expect(calls[0]).toMatchObject({ method: 'drawImage', args: [image, 0, 0, 600, 908] })
@@ -111,7 +113,9 @@ describe('renderCreationToBlob', () => {
       { type: 'text', id: 't1', label: 'hi', x: 10, y: 20, width: 100, height: 50, fontSize: 22, heightAuto: true },
     ]
 
-    await renderCreationToBlob(image, { image_width: 600, image_height: 908 }, layers)
+    await renderCreationToBlob(document.createElement('div'), { image_width: 600, image_height: 908 }, layers, {
+      background: { image, x: 0, y: 0, width: 600, height: 908 },
+    })
 
     const draws = calls.filter((c) => c.method === 'drawImage')
     expect(draws).toHaveLength(2) // background + the image layer
@@ -196,7 +200,7 @@ describe('renderCreationToBlob', () => {
       const { toBlob } = recordingContext()
       const createSpy = vi.spyOn(document, 'createElement')
 
-      const blob = await renderCreationToBlob(document.createElement('img'), { image_width: 3000, image_height: 2000 }, [])
+      const blob = await renderCreationToBlob(document.createElement('div'), { image_width: 3000, image_height: 2000 }, [])
 
       const canvas = canvasOf(createSpy)
       expect([canvas.width, canvas.height]).toEqual([3000, 2000])
@@ -209,7 +213,7 @@ describe('renderCreationToBlob', () => {
       const { calls } = recordingContext()
       const createSpy = vi.spyOn(document, 'createElement')
 
-      await renderCreationToBlob(document.createElement('img'), { image_width: 3000, image_height: 2000 }, [], { maxEdge: 1200 })
+      await renderCreationToBlob(document.createElement('div'), { image_width: 3000, image_height: 2000 }, [], { maxEdge: 1200 })
 
       const canvas = canvasOf(createSpy)
       expect([canvas.width, canvas.height]).toEqual([1200, 800])
@@ -222,7 +226,7 @@ describe('renderCreationToBlob', () => {
       const { calls } = recordingContext()
       const createSpy = vi.spyOn(document, 'createElement')
 
-      await renderCreationToBlob(document.createElement('img'), { image_width: 600, image_height: 400 }, [], { maxEdge: 1200 })
+      await renderCreationToBlob(document.createElement('div'), { image_width: 600, image_height: 400 }, [], { maxEdge: 1200 })
 
       const canvas = canvasOf(createSpy)
       expect([canvas.width, canvas.height]).toEqual([600, 400])
@@ -254,10 +258,67 @@ describe('renderCreationToBlob', () => {
     })
   })
 
+  describe('background image', () => {
+    it('draws the background at its own position and size inside the canvas, before every layer (a template on an enlarged canvas)', async () => {
+      const { ctx, calls } = mockContext()
+      stubCanvas(ctx)
+      const image = document.createElement('img')
+      const layers: Layer[] = [{ type: 'text', id: 't', label: 'hi', x: 10, y: 10, width: 100, height: 50, fontSize: 20, heightAuto: true }]
+
+      await renderCreationToBlob(document.createElement('div'), { image_width: 700, image_height: 908 }, layers, {
+        background: { image, x: 100, y: 0, width: 600, height: 908 },
+      })
+
+      expect(calls[0]).toMatchObject({ method: 'drawImage', args: [image, 100, 0, 600, 908] })
+      expect(calls.findIndex((c) => c.method === 'strokeText')).toBeGreaterThan(0)
+      vi.restoreAllMocks()
+    })
+
+    it('draws nothing as a background when none is given (a freeform canvas), leaving it transparent', async () => {
+      const { ctx, calls } = mockContext()
+      stubCanvas(ctx)
+      await renderCreationToBlob(document.createElement('div'), { image_width: 700, image_height: 908 }, [])
+      expect(calls.some((c) => c.method === 'drawImage')).toBe(false)
+      vi.restoreAllMocks()
+    })
+
+    it('lets the background hang off the canvas (a canvas shrunk below the image); the canvas itself does the cropping', async () => {
+      const { ctx, calls } = mockContext()
+      stubCanvas(ctx)
+      const image = document.createElement('img')
+
+      await renderCreationToBlob(document.createElement('div'), { image_width: 400, image_height: 500 }, [], {
+        background: { image, x: -100, y: -50, width: 600, height: 908 },
+      })
+
+      expect(calls[0].args).toEqual([image, -100, -50, 600, 908])
+      vi.restoreAllMocks()
+    })
+
+    it('scales the background down with everything else in a downscaled preview', async () => {
+      const { ctx, calls } = mockContext()
+      const extra = ctx as typeof ctx & { scale: (...a: unknown[]) => void }
+      extra.scale = (...args: unknown[]) => calls.push({ method: 'scale', args })
+      stubCanvas(extra)
+      const image = document.createElement('img')
+
+      await renderCreationToBlob(document.createElement('div'), { image_width: 2400, image_height: 1200 }, [], {
+        maxEdge: 1200,
+        background: { image, x: 0, y: 0, width: 2400, height: 1200 },
+      })
+
+      const scaleIndex = calls.findIndex((c) => c.method === 'scale')
+      const drawIndex = calls.findIndex((c) => c.method === 'drawImage')
+      expect(scaleIndex).toBeGreaterThanOrEqual(0)
+      expect(scaleIndex).toBeLessThan(drawIndex) // scale first, so the draw lands at half size
+      vi.restoreAllMocks()
+    })
+  })
+
   it('rejects when no 2D context is available', async () => {
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
 
-    const image = document.createElement('img')
+    const image = document.createElement('div')
     await expect(renderCreationToBlob(image, { image_width: 10, image_height: 10 }, [])).rejects.toThrow(
       'Canvas 2D context is not available',
     )
@@ -265,26 +326,4 @@ describe('renderCreationToBlob', () => {
     vi.restoreAllMocks()
   })
 
-  it('scales the fixed on-screen padding to match the real-vs-displayed image size ratio', async () => {
-    const templateRow = { image_width: 600, image_height: 908 }
-    const layers: Layer[] = [{ type: 'text', id: 'f1', label: 'hi', x: 10, y: 100, width: 200, height: 50, fontSize: 20, heightAuto: true }]
-
-    async function baselineYAt(displayedWidth: number) {
-      const { ctx, calls } = mockContext()
-      stubCanvas(ctx)
-      const image = document.createElement('img')
-      image.width = displayedWidth
-      await renderCreationToBlob(image, templateRow, layers)
-      vi.restoreAllMocks()
-      return calls.find((c) => c.method === 'fillText')!.args[2] as number
-    }
-
-    const yAtActualSize = await baselineYAt(600) // scale = 600/600 = 1
-    const yAtHalfSize = await baselineYAt(300) // scale = 600/300 = 2
-
-    // Only the padding term (4px * scale) should move — the font-metric
-    // (ascent/half-leading) term is already in real-resolution units and
-    // doesn't depend on how zoomed in/out the on-screen preview was.
-    expect(yAtHalfSize - yAtActualSize).toBeCloseTo(4 * (2 - 1), 5)
-  })
 })

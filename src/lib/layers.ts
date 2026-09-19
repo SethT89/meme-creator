@@ -315,6 +315,61 @@ export const MIN_LAYER_SIZE = 20
 // layer, just for the canvas itself.
 export const MIN_CANVAS_SIZE = 100
 
+// Resizes a canvas by dragging one of its 8 handles. `deltaX/deltaY` are how
+// far the pointer moved, in canvas pixels, since the drag began; the sign says
+// which edge that handle owns (see ResizeSign below).
+//
+// The right/bottom edges are easy: the origin doesn't move, so only the size
+// changes. The LEFT/TOP edges move the origin — the canvas's own (0,0) is now
+// somewhere else — so everything on it must shift by the same amount to stay
+// visually put. That shift is returned as offsetX/offsetY, to be ADDED to every
+// layer's position as it was when the drag began (not to their current position,
+// so a long drag never accumulates rounding or clamping drift). When the size
+// hits MIN_CANVAS_SIZE the edge stops moving, and so does the shift: it is the
+// distance the edge really travelled, not the distance the pointer did.
+export function resizeCanvas(
+  start: { width: number; height: number },
+  deltaX: number,
+  deltaY: number,
+  xSign: ResizeSign,
+  ySign: ResizeSign,
+): { width: number; height: number; offsetX: number; offsetY: number } {
+  function axis(size: number, delta: number, sign: ResizeSign) {
+    if (sign === 0) return { size, offset: 0 }
+    const next = Math.max(MIN_CANVAS_SIZE, size + sign * delta)
+    // Right/bottom (+1): the origin stays. Left/top (-1): the edge that moved
+    // is the origin's own, so contents shift by however much the size changed.
+    return { size: next, offset: sign === 1 ? 0 : next - size }
+  }
+  const x = axis(start.width, deltaX, xSign)
+  const y = axis(start.height, deltaY, ySign)
+  return { width: x.size, height: y.size, offsetX: x.offset, offsetY: y.offset }
+}
+
+// The CSS clip-path that crops a layer to the canvas, or undefined when the
+// layer is fully inside. Without it a layer hanging off an edge — after the
+// canvas was shrunk, or a layer dragged partway off — spills out over the page,
+// while export (which draws onto a canvas of exactly the canvas's size) crops it.
+//
+// Written in container-query units, not percentages of the layer, because an
+// auto-height text box's real height is unknown until the browser lays it out:
+// `cqw` (1% of the canvas width — also what text sizing already uses) lets every
+// edge be expressed from the canvas's side. Left/top: how far the layer hangs
+// off. Right/bottom: the layer's own size (100%) minus how much of it is still
+// inside the canvas; max(0px, ...) makes a layer that fits clip nothing there.
+export function layerClipPath(layer: Layer, canvas: { width: number; height: number }): string | undefined {
+  // A text box's stored height is only its starting height (see heightAuto), so
+  // it's just a trigger here — the clip itself never depends on it.
+  const overhangs = layer.x < 0 || layer.y < 0 || layer.x + layer.width > canvas.width || layer.y + layer.height > canvas.height
+  if (!overhangs) return undefined
+  const cqw = (px: number) => `${(px / canvas.width) * 100}cqw`
+  const left = layer.x < 0 ? cqw(-layer.x) : '0px'
+  const top = layer.y < 0 ? cqw(-layer.y) : '0px'
+  const right = `max(0px, calc(100% - ${cqw(canvas.width - layer.x)}))`
+  const bottom = `max(0px, calc(100% - ${cqw(canvas.height - layer.y)}))`
+  return `inset(${top} ${right} ${bottom} ${left})`
+}
+
 // Which edge(s) a resize handle controls. +1 = right/bottom edge (growing
 // moves that edge further out, opposite edge fixed). -1 = left/top edge
 // (growing moves that edge further out the other way, opposite edge fixed).

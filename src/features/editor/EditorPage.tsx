@@ -4,6 +4,7 @@ import type {
   KeyboardEvent as ReactKeyboardEvent,
   MouseEvent as ReactMouseEvent,
   ChangeEvent as ReactChangeEvent,
+  CSSProperties,
   RefObject,
 } from 'react'
 import { createPortal } from 'react-dom'
@@ -28,16 +29,18 @@ import {
   createBlankTextLayer,
   createImageLayer,
   reorderLayer,
+  resizeCanvas,
+  layerClipPath,
   getCropRect,
   getFullImageBounds,
   frameToCropFraction,
   clampImagePan,
   applyCropFrameResizeDelta,
   RESIZE_HANDLES,
-  MIN_CANVAS_SIZE,
 } from '../../lib/layers'
 import type { Layer, TextLayer, ImageLayer, ImageBounds, ResizeSign, ReorderAction } from '../../lib/layers'
 import { renderCreationToBlob } from '../../lib/exportCanvas'
+import type { RenderOptions } from '../../lib/exportCanvas'
 import { canShareFile, downloadBlob, isMobileOrTabletDevice, sanitizeFilename, shareFile } from '../../lib/exportDelivery'
 import { prepareImageForUpload } from '../../lib/imageUpload'
 import { PREVIEW_RENDER_OPTIONS } from '../../lib/previewStorage'
@@ -46,10 +49,22 @@ import type { Json } from '../../types/database'
 
 type Source =
   | { type: 'freeform'; name: string; canvasWidth?: number; canvasHeight?: number }
-  | { type: 'template'; name: string; templateId: string; blankImageUrl: string }
+  // A template's canvas starts as exactly its image. Once adjusted, canvasWidth/
+  // canvasHeight are the canvas's own size and backgroundX/Y is where the
+  // template image sits inside it (all four undefined until then).
+  | {
+      type: 'template'
+      name: string
+      templateId: string
+      blankImageUrl: string
+      canvasWidth?: number
+      canvasHeight?: number
+      backgroundX?: number
+      backgroundY?: number
+    }
   | null
 type SavedMeta = { id: string; name: string; tags: string[] } | null
-type FreeformCanvasData = { layers?: Layer[]; canvasWidth?: number; canvasHeight?: number }
+type CanvasData = { layers?: Layer[]; canvasWidth?: number; canvasHeight?: number; backgroundX?: number; backgroundY?: number }
 
 // Image layers only ever get the 4 corner handles — an image renders via
 // object-cover, so letting it resize on just one axis (like a text box can)
@@ -58,17 +73,6 @@ type FreeformCanvasData = { layers?: Layer[]; canvasWidth?: number; canvasHeight
 // applyAspectLockedResizeDelta), so a corner handle is the only one that
 // makes sense for an image.
 const CORNER_RESIZE_HANDLES = RESIZE_HANDLES.filter((h) => h.xSign !== 0 && h.ySign !== 0)
-
-// Canvas-resize handles — right edge, bottom edge, bottom-right corner only.
-// See the design doc's scope note: growing/shrinking from these three never
-// requires moving existing layers' x/y, since the canvas's own origin (0,0)
-// never moves. Left/top-edge growth would need to shift every layer's
-// position too, and isn't needed yet.
-const CANVAS_RESIZE_HANDLES: { key: string; top: string; left: string; cursor: string; xSign: ResizeSign; ySign: ResizeSign }[] = [
-  { key: 'rm', top: '50%', left: '100%', cursor: 'ew-resize', xSign: 1, ySign: 0 },
-  { key: 'bm', top: '100%', left: '50%', cursor: 'ns-resize', xSign: 0, ySign: 1 },
-  { key: 'br', top: '100%', left: '100%', cursor: 'nwse-resize', xSign: 1, ySign: 1 },
-]
 
 export function EditorPage() {
   const { creationId } = useParams<{ creationId?: string }>()
@@ -152,11 +156,22 @@ export function EditorPage() {
   // render re-fires the effect every render — including from inside the
   // effect's own setState call, which is an infinite loop).
   const activeCanvas = useMemo(() => {
-    if (templateRow) return { width: templateRow.image_width, height: templateRow.image_height }
+    if (source?.type === 'template' && templateRow) {
+      // Its own adjusted size once adjusted, otherwise exactly the image.
+      return { width: source.canvasWidth ?? templateRow.image_width, height: source.canvasHeight ?? templateRow.image_height }
+    }
     if (source?.type === 'freeform' && source.canvasWidth && source.canvasHeight) {
       return { width: source.canvasWidth, height: source.canvasHeight }
     }
     return undefined
+  }, [templateRow, source])
+  // Where the template image sits on the canvas, in the canvas's real pixels:
+  // filling it (0,0) until the canvas is adjusted, then wherever the adjustment
+  // left it — possibly off-center, or hanging off an edge. Its size never
+  // changes; only the canvas around it does.
+  const templateBackground = useMemo(() => {
+    if (source?.type !== 'template' || !templateRow) return undefined
+    return { x: source.backgroundX ?? 0, y: source.backgroundY ?? 0, width: templateRow.image_width, height: templateRow.image_height }
   }, [templateRow, source])
 
   const { data: fields = [], isSuccess: fieldsLoaded } = useTemplateFields(source?.type === 'template' ? source.templateId : undefined)
@@ -170,6 +185,12 @@ export function EditorPage() {
   // (switching templates), never rendered.
   const baselineLayersRef = useRef<Layer[]>([])
   const imgRef = useRef<HTMLElement>(null)
+  // The template image inside the canvas box (drawn under every layer).
+  const bgImgRef = useRef<HTMLImageElement>(null)
+  // Set once a canvas resize actually changes something, so switching templates
+  // afterwards asks before throwing the adjustment away, even with no layer
+  // edits. Reset wherever the baseline layers are reset.
+  const canvasEditedRef = useRef(false)
   const canvasScrollRef = useRef<HTMLDivElement>(null)
   // Fixed-position (viewport pixel) anchor for the portaled PropertyBar —
   // see the useLayoutEffect below for why this is measured into state
@@ -186,9 +207,25 @@ export function EditorPage() {
   const resizeState = useRef<{ id: string; startX: number; startY: number; layerStart: Layer; xSign: ResizeSign; ySign: ResizeSign } | null>(
     null,
   )
-  const canvasResizeState = useRef<{ startX: number; startY: number; startWidth: number; startHeight: number; xSign: ResizeSign; ySign: ResizeSign } | null>(
-    null,
-  )
+  // Everything a canvas-resize drag needs, captured once when it begins: the
+  // pointer and canvas size to measure from, and every layer as it was, since a
+  // drag on the left/top edge moves the canvas origin and so shifts them all
+  // (always computed from these start positions, never accumulated).
+  const canvasResizeState = useRef<{
+    startX: number
+    startY: number
+    startWidth: number
+    startHeight: number
+    // On-screen px per canvas px when the drag began. The view zooms out to fit
+    // as the canvas grows, so re-measuring mid-drag would change how far the
+    // pointer "counts" for; this stays fixed for the whole drag.
+    startDisplayScale: number
+    // Where the template image sat when the drag began (null for freeform).
+    startBackground: { x: number; y: number } | null
+    xSign: ResizeSign
+    ySign: ResizeSign
+    startLayers: Layer[]
+  } | null>(null)
 
   // Deselect on a click ANYWHERE in the app, not just within this page's own
   // rendered content — the page's content div only spans its own content
@@ -351,17 +388,23 @@ export function EditorPage() {
       const template = allTemplates.find((t) => t.id === existingCreation.template_id)
       if (template) {
         setLoadedCreationId(existingCreation.id)
+        const saved = existingCreation.canvas_data as CanvasData | null
+        const adjusted = saved?.canvasWidth && saved?.canvasHeight
+        canvasEditedRef.current = false
         setSource({
           type: 'template',
           name: template.name,
           templateId: template.id,
           blankImageUrl: template.blank_image_url,
+          ...(adjusted
+            ? { canvasWidth: saved.canvasWidth, canvasHeight: saved.canvasHeight, backgroundX: saved.backgroundX ?? 0, backgroundY: saved.backgroundY ?? 0 }
+            : {}),
         })
         setSavedMeta({ id: existingCreation.id, name: existingCreation.name, tags: existingCreation.tags })
       }
     } else {
       setLoadedCreationId(existingCreation.id)
-      const canvasData = existingCreation.canvas_data as FreeformCanvasData | null
+      const canvasData = existingCreation.canvas_data as CanvasData | null
       setSource({
         type: 'freeform',
         name: existingCreation.name.replace(/ \d+$/, '') || existingCreation.name,
@@ -371,6 +414,7 @@ export function EditorPage() {
       const seeded = layersFromCanvasData(existingCreation.canvas_data, [])
       setLayers(seeded)
       baselineLayersRef.current = seeded
+      canvasEditedRef.current = false
       setSavedMeta({ id: existingCreation.id, name: existingCreation.name, tags: existingCreation.tags })
     }
   }
@@ -409,6 +453,7 @@ export function EditorPage() {
     setLayers([])
     setLayersSeededFor(undefined)
     baselineLayersRef.current = []
+    canvasEditedRef.current = false
     if (creationId) navigate('/')
   }
 
@@ -423,6 +468,7 @@ export function EditorPage() {
     setLayers([])
     setLayersSeededFor(undefined)
     baselineLayersRef.current = []
+    canvasEditedRef.current = false
     if (creationId) navigate('/')
   }
 
@@ -433,7 +479,7 @@ export function EditorPage() {
   // dialog in the way every single time, and only interrupts once they've
   // genuinely started customizing one.
   function hasUnsavedLayerEdits(): boolean {
-    return JSON.stringify(layers) !== JSON.stringify(baselineLayersRef.current)
+    return canvasEditedRef.current || JSON.stringify(layers) !== JSON.stringify(baselineLayersRef.current)
   }
 
   function handleSelectTemplate(template: SelectedTemplate) {
@@ -573,6 +619,7 @@ export function EditorPage() {
         // pattern, so switching away without adding anything else doesn't
         // spuriously prompt to discard work.
         baselineLayersRef.current = [newLayer]
+        canvasEditedRef.current = false
       } else if (targetCanvas) {
         // Adding to an existing canvas (template or freeform) — auto-scaled
         // to fit, canvas size untouched.
@@ -600,6 +647,7 @@ export function EditorPage() {
         setLayers([])
         setLayersSeededFor(undefined)
         baselineLayersRef.current = []
+        canvasEditedRef.current = false
       } else if (newLayerId) {
         setLayers((prev) => prev.filter((l) => l.id !== newLayerId))
       }
@@ -686,35 +734,54 @@ export function EditorPage() {
     resizeState.current = null
   }
 
-  // Canvas-resize handles (rendered below) — right/bottom edges and the
-  // bottom-right corner only. Growing/shrinking from those edges never
-  // needs to move existing layers' x/y, since the canvas's own origin
-  // (0,0) never moves; left/top-edge growth would require shifting every
-  // layer's position too and isn't needed yet (see the design doc's scope
-  // note).
+  // Canvas-resize handles (rendered below) — all 8 edges and corners. The
+  // right/bottom edges leave the canvas origin (0,0) where it is; the
+  // left/top edges move it, so those drags also shift every layer (see
+  // resizeCanvas in layers.ts).
   function handleCanvasResizePointerDown(e: ReactPointerEvent<HTMLDivElement>, xSign: ResizeSign, ySign: ResizeSign) {
     e.stopPropagation()
-    if (source?.type !== 'freeform' || !source.canvasWidth || !source.canvasHeight) return
-    canvasResizeState.current = { startX: e.clientX, startY: e.clientY, startWidth: source.canvasWidth, startHeight: source.canvasHeight, xSign, ySign }
+    if (!activeCanvas || !imgRef.current) return
+    canvasResizeState.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      startWidth: activeCanvas.width,
+      startHeight: activeCanvas.height,
+      startDisplayScale: imgRef.current.getBoundingClientRect().width / activeCanvas.width,
+      startBackground: templateBackground ? { x: templateBackground.x, y: templateBackground.y } : null,
+      xSign,
+      ySign,
+      startLayers: layers,
+    }
     e.currentTarget.setPointerCapture?.(e.pointerId)
   }
 
   function handleCanvasResizePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
     e.stopPropagation()
     const resize = canvasResizeState.current
-    if (!resize || !imgRef.current) return
-    const displayScale = imgRef.current.getBoundingClientRect().width / resize.startWidth
-    const deltaX = (e.clientX - resize.startX) / displayScale
-    const deltaY = (e.clientY - resize.startY) / displayScale
-    setSource((prev) =>
-      prev?.type === 'freeform'
-        ? {
-            ...prev,
-            canvasWidth: resize.xSign === 1 ? Math.max(MIN_CANVAS_SIZE, resize.startWidth + deltaX) : prev.canvasWidth,
-            canvasHeight: resize.ySign === 1 ? Math.max(MIN_CANVAS_SIZE, resize.startHeight + deltaY) : prev.canvasHeight,
-          }
-        : prev,
-    )
+    if (!resize) return
+    const deltaX = (e.clientX - resize.startX) / resize.startDisplayScale
+    const deltaY = (e.clientY - resize.startY) / resize.startDisplayScale
+    const next = resizeCanvas({ width: resize.startWidth, height: resize.startHeight }, deltaX, deltaY, resize.xSign, resize.ySign)
+    if (next.width !== resize.startWidth || next.height !== resize.startHeight) canvasEditedRef.current = true
+    setSource((prev) => {
+      if (prev?.type === 'freeform') return { ...prev, canvasWidth: next.width, canvasHeight: next.height }
+      if (prev?.type === 'template') {
+        // The image is part of what the left/top drags move, exactly like a layer.
+        return {
+          ...prev,
+          canvasWidth: next.width,
+          canvasHeight: next.height,
+          backgroundX: (resize.startBackground?.x ?? 0) + next.offsetX,
+          backgroundY: (resize.startBackground?.y ?? 0) + next.offsetY,
+        }
+      }
+      return prev
+    })
+    // Dragging the left/top edge moves the canvas origin, so every layer moves
+    // with it. From the drag's start positions, so it never accumulates.
+    if (resize.xSign === -1 || resize.ySign === -1) {
+      setLayers(resize.startLayers.map((l) => ({ ...l, x: l.x + next.offsetX, y: l.y + next.offsetY })))
+    }
   }
 
   function handleCanvasResizePointerUp(e: ReactPointerEvent<HTMLDivElement>) {
@@ -851,15 +918,34 @@ export function EditorPage() {
   // which is a known TS/Supabase-generated-types limitation, not a real type
   // mismatch.
   function buildCanvasData(activeSource: Source): Json {
-    const freeformExtras =
-      activeSource?.type === 'freeform' ? { canvasWidth: activeSource.canvasWidth, canvasHeight: activeSource.canvasHeight } : {}
-    return { layers, ...freeformExtras } as unknown as Json
+    // A freeform canvas always saves its size. A template saves it (and where the
+    // image sits) only once adjusted, so an unadjusted one saves exactly what it
+    // always has and older saves reopen unchanged.
+    const canvasExtras =
+      activeSource?.type === 'freeform'
+        ? { canvasWidth: activeSource.canvasWidth, canvasHeight: activeSource.canvasHeight }
+        : activeSource?.type === 'template' && activeSource.canvasWidth !== undefined
+          ? {
+              canvasWidth: activeSource.canvasWidth,
+              canvasHeight: activeSource.canvasHeight,
+              backgroundX: activeSource.backgroundX ?? 0,
+              backgroundY: activeSource.backgroundY ?? 0,
+            }
+          : {}
+    return { layers, ...canvasExtras } as unknown as Json
   }
 
   // The gallery card's thumbnail (and its Download) come from a PNG rendered
   // at Save time with the same code Export uses. Best-effort: if rendering
   // fails (e.g. a cross-origin image taints the canvas) the save must still
   // go through — the card just falls back to its grey placeholder.
+  // The template image and where it sits on the canvas, for the renderer to
+  // draw under every layer — undefined on a freeform canvas (nothing beneath).
+  function currentBackground(): RenderOptions['background'] {
+    if (!templateBackground || !bgImgRef.current) return undefined
+    return { image: bgImgRef.current, ...templateBackground }
+  }
+
   async function renderPreviewBlob(): Promise<Blob | null> {
     if (!imgRef.current || !activeCanvas) return null
     try {
@@ -867,7 +953,7 @@ export function EditorPage() {
         imgRef.current,
         { image_width: activeCanvas.width, image_height: activeCanvas.height },
         layers,
-        PREVIEW_RENDER_OPTIONS,
+        { ...PREVIEW_RENDER_OPTIONS, background: currentBackground() },
       )
       return blob ?? null
     } catch {
@@ -925,6 +1011,7 @@ export function EditorPage() {
         imgRef.current,
         { image_width: activeCanvas.width, image_height: activeCanvas.height },
         layers,
+        { background: currentBackground() },
       )
       const filename = `${sanitizeFilename(savedMeta?.name ?? source.name)}.png`
       const file = new File([blob], filename, { type: 'image/png' })
@@ -990,7 +1077,7 @@ export function EditorPage() {
               disabled={source === null || uploadingImage}
               saving={saving}
               canSaveAs={savedMeta !== null}
-              canAdjustCanvas={source?.type === 'freeform' && activeCanvas !== undefined}
+              canAdjustCanvas={activeCanvas !== undefined}
               onSave={() => (savedMeta ? handleQuickSave() : openDialog('save'))}
               onSaveAs={() => openDialog('saveAs')}
               onAdjustCanvas={handleToggleAdjustCanvas}
@@ -1010,7 +1097,16 @@ export function EditorPage() {
             // and gets clipped by the scroll container's overflow-auto,
             // forcing a scroll to see all of it. Not needed on mobile, where
             // CanvasFab overlays the image instead of sitting outside it.
-            className="relative inline-block rounded-lg bg-[repeating-conic-gradient(#00000010_0%_25%,transparent_0%_50%)] bg-[length:20px_20px] sm:mr-12 sm:mb-4"
+            //
+            // m-2 (8px all round, on top of the above on the right/bottom at
+            // sm+) keeps the canvas off the scroll area's edges: canvas-resize
+            // and layer-resize handles are centered ON the edge, so their outer
+            // half sits outside the box, and a scroll container clips whatever
+            // pokes past its own edge — flush against the top/left, that half
+            // (and on a canvas wider than the space, the whole left side) was
+            // cut off and could not be grabbed. The width/height budgets in the
+            // canvas box's className below are reduced by exactly these margins.
+            className="relative m-2 inline-block rounded-lg bg-[repeating-conic-gradient(#00000010_0%_25%,transparent_0%_50%)] bg-[length:20px_20px] sm:mr-12 sm:mb-4"
           >
             {/* Same fill-available-height approach as the template <img>
                 below (viewport-relative height + aspect-square instead of a
@@ -1037,93 +1133,77 @@ export function EditorPage() {
             {source === null && (
               <div className="aspect-square h-[65vh] max-w-[calc(100vw-14rem)] sm:h-[calc(100vh-19rem)] sm:max-w-[calc(100vw-24rem)] sm:min-h-[240px]" />
             )}
-            {source?.type === 'template' && (
-              <img
-                ref={imgRef as RefObject<HTMLImageElement>}
-                src={source.blankImageUrl}
-                alt={source.name}
-                // Needed for canvas.toBlob() in renderCreationToBlob to not
-                // throw on a "tainted" canvas — the template-images bucket
-                // is public with permissive CORS, so this alone is enough.
-                crossOrigin="anonymous"
-                // No explicit width/height attributes — sized entirely via
-                // CSS below. An explicit aspect-ratio (once templateRow is
-                // known) keeps sm:min-h-[240px] below from distorting the
-                // image on its own — without a locked ratio, a height floor
-                // and max-w-full can each win independently, stretching
-                // width and height out of proportion instead of scaling
-                // together.
-                style={templateRow ? { aspectRatio: `${templateRow.image_width} / ${templateRow.image_height}` } : undefined}
-                // max-h-[65vh] is the fallback before templateRow (and its
-                // real aspect ratio) has loaded. Once it has, sm:max-h-
-                // [calc(100vh-19rem)] replaces the 65vh guess with the
-                // actual available height in this layout (measured live:
-                // header + toolbar + padding + margins + CanvasFab's own
-                // reserved margin below always total 19rem here) — 65vh is
-                // the wrong shape of formula for "fill available space" (it
-                // scales at 0.65x viewport height while the real budget
-                // scales at 1x minus a constant, so it only matches by
-                // coincidence at one specific window height).
-                // sm:min-h-[240px] is the floor past which the image stops
-                // scaling down and this area's overflow-auto (or, on a short
-                // enough viewport, the page itself) scrolls instead — sm+
-                // only: below that width the image is already width-bound
-                // (portrait templates on a narrow phone), and forcing a
-                // height floor there fights max-w-full for control of the
-                // box and distorts it (confirmed live — the two together
-                // rendered a visibly squashed template under 640px). A short
-                // *landscape* phone still gets the floor, since landscape
-                // width is almost always above the sm breakpoint.
-                //
-                // object-contain matters specifically when switching between
-                // two templates: this <img> element is reused (same src
-                // attribute changing, not remounted), so the browser keeps
-                // painting the OLD template's already-decoded bitmap while
-                // the new one downloads. The aspect-ratio above already
-                // updates to the new template's ratio immediately (it comes
-                // from templateRow/allTemplates, already loaded — no network
-                // wait), so the box reshapes right away, but the default
-                // object-fit (fill) would non-uniformly stretch that old
-                // bitmap to fill the new box shape until the new image
-                // finishes loading — which is exactly the "squished for a
-                // moment" glitch. object-contain keeps the old bitmap at its
-                // own correct proportions (letterboxed within the new box
-                // shape) for that brief window instead of distorting it; it
-                // has no visible effect once the new image has loaded, since
-                // the box's aspect-ratio always matches the loaded image's
-                // own ratio at rest.
-                className="block max-h-[65vh] w-auto max-w-full object-contain sm:max-h-[calc(100vh-19rem)] sm:min-h-[240px]"
-              />
-            )}
-            {source?.type === 'freeform' && activeCanvas && (
-              // A plain <div> isn't a "replaced element" the way <img> is, so
-              // it has no built-in algorithm for deriving its width from a
-              // max-height + intrinsic ratio the way the template <img>
-              // above can — that combination silently collapses this div to
-              // its CSS floor (sm:min-h-[240px]) regardless of the real
-              // aspect ratio or viewport size, since w-auto/max-w-full both
-              // resolve against this box's own indeterminate (shrink-wrap)
-              // parent, the same circular-sizing trap the blank placeholder
-              // div below (source === null) already works around. Fixed the
-              // same way: an explicit height (not max-height) makes this
-              // box's own height definite directly, so aspect-ratio can then
-              // derive width from it without any circularity — and the
-              // max-width needs the same explicit calc() as that placeholder
-              // for the same reason (a percentage one hits the same
-              // indeterminate-parent problem).
+            {source !== null && activeCanvas && (
+              // One canvas box for both kinds of canvas — a plain <div>, sized to FIT
+              // the space available at the canvas's true aspect ratio. A template's
+              // image is just a picture inside it (see the <img> below), which is
+              // what lets the canvas be adjusted independently of the image.
+              //
+              // A plain <div> isn't a "replaced element" the way <img> is, so it
+              // has no built-in algorithm for deriving its width from a
+              // max-height + intrinsic ratio: that combination silently collapses
+              // it, since w-auto/max-w-full both resolve against this box's own
+              // indeterminate (shrink-wrap) parent — the same circular-sizing trap
+              // the blank placeholder above works around. So the width is explicit
+              // (below) and aspect-ratio derives the height from it.
+              //
+              // No background color here — left transparent so the outer wrapper's
+              // own checkerboard shows through in any canvas space not covered by
+              // the image or a layer. Matters most right after enlarging the canvas:
+              // that new space has to read as "empty canvas," not blend invisibly
+              // into the page's own white background the way opaque white would.
+              // overflow-hidden crops the image when the canvas is shrunk below it.
+              //
+              // Sized to FIT: width is the smaller of "all the width there is" and
+              // "the width that makes the height fill the height there is"
+              // (height x ratio); aspect-ratio derives the height from that. The
+              // old formula fixed the height and only capped the width, so a canvas
+              // wider than the space (easy after dragging its edge out) hit the cap
+              // while the height stayed put — the box's own ratio no longer matched
+              // the canvas's, which squashed everything on it and left the drag
+              // handle trailing behind the cursor. Same measured constants as
+              // before, less the m-2 margins around this box (65vh / 100vh-19.5rem
+              // of height; 100vw-15rem / 100vw-27.5rem of width, below / at-or-above
+              // `sm` — the latter also leaves room for the sm:mr-12 the FAB needs).
+              // No min-h floor: it would fight the ratio for a very wide canvas.
               <div
                 ref={imgRef as RefObject<HTMLDivElement>}
-                style={{ aspectRatio: `${activeCanvas.width} / ${activeCanvas.height}` }}
-                // No background color here — left transparent so the outer
-                // wrapper's own checkerboard pattern (the app's established
-                // "empty" indicator, already used for the no-source blank
-                // canvas) shows through in any canvas space not covered by
-                // an image layer. Matters most right after resizing the
-                // canvas larger than its layers: that revealed space needs
-                // to read as "empty canvas," not blend invisibly into the
-                // page's own white background the way opaque white would.
-                className="block h-[65vh] max-w-[calc(100vw-14rem)] sm:h-[calc(100vh-19rem)] sm:max-w-[calc(100vw-24rem)] sm:min-h-[240px]"
-              />
+                style={{
+                  aspectRatio: `${activeCanvas.width} / ${activeCanvas.height}`,
+                  // The exact ratio, for the width formula in className below.
+                  '--canvas-ratio': activeCanvas.width / activeCanvas.height,
+                } as CSSProperties}
+                className="relative block w-[min(calc(100vw-15rem),calc(65vh*var(--canvas-ratio)))] overflow-hidden sm:w-[min(calc(100vw-27.5rem),calc((100vh-19.5rem)*var(--canvas-ratio)))]"
+              >
+                {source.type === 'template' && templateBackground && (
+                  <img
+                    ref={bgImgRef}
+                    src={source.blankImageUrl}
+                    alt={source.name}
+                    draggable={false}
+                    // Needed for canvas.toBlob() in renderCreationToBlob to not
+                    // throw on a "tainted" canvas — the template-images bucket
+                    // is public with permissive CORS, so this alone is enough.
+                    crossOrigin="anonymous"
+                    // Positioned and sized as percentages of the canvas, like a
+                    // layer. object-contain matters when switching templates:
+                    // this <img> is reused (only its src changes), so the
+                    // browser keeps painting the OLD template's decoded bitmap
+                    // while the new one downloads, and the box already has the
+                    // new template's proportions — the default object-fit
+                    // (fill) would stretch that old bitmap into the new shape
+                    // for a moment (the "squished for a second" glitch).
+                    // max-w-none overrides Tailwind Preflight's img max-width.
+                    className="pointer-events-none absolute max-w-none select-none object-contain"
+                    style={{
+                      left: `${(templateBackground.x / activeCanvas.width) * 100}%`,
+                      top: `${(templateBackground.y / activeCanvas.height) * 100}%`,
+                      width: `${(templateBackground.width / activeCanvas.width) * 100}%`,
+                      height: `${(templateBackground.height / activeCanvas.height) * 100}%`,
+                    }}
+                  />
+                )}
+              </div>
             )}
             {source?.type === 'freeform' && !activeCanvas && (
               <div className="flex h-80 w-80 items-center justify-center border border-border bg-muted text-sm text-muted-foreground">
@@ -1149,6 +1229,9 @@ export function EditorPage() {
                   const isSelected = selectedFieldId === layer.id
                   const isEditing = editingLayerId === layer.id
                   const isCropping = layer.type === 'image' && cropTargetId === layer.id
+                  // Anything hanging off the canvas (after shrinking it, or a layer
+                  // dragged partway out) is cropped to it, as export does.
+                  const clipPath = layerClipPath(layer, activeCanvas)
 
                   return (
                     <Fragment key={layer.id}>
@@ -1168,7 +1251,7 @@ export function EditorPage() {
                           className={`absolute touch-none cursor-grab overflow-hidden active:cursor-grabbing ${
                             isCropping ? 'border-2 border-dashed border-blue-500' : isSelected ? 'border border-blue-500' : 'border border-transparent'
                           }`}
-                          style={{ left: `${leftPct}%`, top: `${topPct}%`, width: `${widthPct}%`, height: `${heightPct}%` }}
+                          style={{ left: `${leftPct}%`, top: `${topPct}%`, width: `${widthPct}%`, height: `${heightPct}%`, clipPath }}
                           onPointerDown={(e) => (isCropping ? handleCropPanPointerDown(e) : handlePointerDown(e, layer))}
                           onPointerMove={isCropping ? handleCropPanPointerMove : handlePointerMove}
                           onPointerUp={isCropping ? handleCropPanPointerUp : handlePointerUp}
@@ -1282,6 +1365,7 @@ export function EditorPage() {
                             // same as any ordinary text box.
                             ...(layer.heightAuto ? {} : { height: `${heightPct}%` }),
                             fontSize: `calc(${(layer.fontSize / activeCanvas.width) * 100} * 1cqw)`,
+                            clipPath,
                           }}
                           // contentEditable while editing, not React `children` —
                           // React thinks this element's children is just `false`
@@ -1388,11 +1472,12 @@ export function EditorPage() {
                 })}
               </div>
             )}
-            {source?.type === 'freeform' && activeCanvas && adjustingCanvas && (
+            {activeCanvas && adjustingCanvas && (
               <div className="absolute inset-0">
-                {CANVAS_RESIZE_HANDLES.map((handle) => (
+                {RESIZE_HANDLES.map((handle) => (
                   <div
                     key={handle.key}
+                    data-canvas-handle={handle.key}
                     className="absolute z-10 h-2.5 w-2.5 touch-none border border-neutral-500 bg-white"
                     style={{ top: handle.top, left: handle.left, transform: 'translate(-50%, -50%)', cursor: handle.cursor }}
                     onPointerDown={(e) => handleCanvasResizePointerDown(e, handle.xSign, handle.ySign)}
@@ -1407,7 +1492,9 @@ export function EditorPage() {
                 a template is loaded — it's the entry point for starting from
                 scratch (upload an image, add a sticker/text) as well as for
                 adding to a loaded template. */}
-            <CanvasFab onAddText={handleAddText} onAddImage={handleAddImage} uploadingImage={uploadingImage} />
+            {/* Hidden while adjusting the canvas: it sits over the canvas's
+                bottom-right corner, right on top of that resize handle. */}
+            {!adjustingCanvas && <CanvasFab onAddText={handleAddText} onAddImage={handleAddImage} uploadingImage={uploadingImage} />}
             <input
               ref={fileInputRef}
               type="file"

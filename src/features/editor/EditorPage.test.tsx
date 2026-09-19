@@ -737,10 +737,16 @@ describe('EditorPage', () => {
       // A small JPEG, not a full-size PNG: uploading the PNG of a big photo
       // took ~15s, which made Save feel like it wasn't working.
       expect(renderCreationToBlob).toHaveBeenCalledWith(
-        expect.any(HTMLImageElement),
+        expect.any(HTMLDivElement),
         { image_width: 600, image_height: 908 },
         expect.arrayContaining([expect.objectContaining({ label: 'Caption 1' })]),
-        { maxEdge: 1200, type: 'image/jpeg', quality: 0.85 },
+        {
+          maxEdge: 1200,
+          type: 'image/jpeg',
+          quality: 0.85,
+          // the template image, drawn under everything, at 0,0 for an unadjusted canvas
+          background: { image: expect.any(HTMLImageElement), x: 0, y: 0, width: 600, height: 908 },
+        },
       )
     })
 
@@ -876,6 +882,158 @@ describe('EditorPage', () => {
       expect(await screen.findByRole('status')).toHaveTextContent(/save failed/i)
       const stillOpen = screen.getByRole('dialog')
       expect(within(stillOpen).getByRole('button', { name: 'Save' })).toBeEnabled()
+    })
+  })
+
+  describe('Adjusting a template canvas', () => {
+    // Two Buttons is 600x908, so a canvas box given a 600px rect is 1:1.
+    const rectOf = (width: number, height: number) => ({ width, height, top: 0, left: 0, right: width, bottom: height, x: 0, y: 0, toJSON: () => {} })
+    const handle = (key: string) => document.querySelector(`[data-canvas-handle="${key}"]`) as HTMLElement
+    const canvasBox = () => document.querySelector('[style*="aspect-ratio"]') as HTMLElement
+    const background = () => screen.getByRole('img', { name: 'Two Buttons' })
+    const pct = (el: HTMLElement, prop: 'left' | 'top' | 'width' | 'height') => parseFloat(el.style[prop])
+
+    async function startAdjustingTemplate() {
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+      await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Adjust Canvas' }))
+      vi.spyOn(canvasBox(), 'getBoundingClientRect').mockReturnValue(rectOf(600, 908))
+    }
+    const drag = (key: string, to: [number, number]) => {
+      fireEvent.pointerDown(handle(key), { clientX: 0, clientY: 0 })
+      fireEvent.pointerMove(handle(key), { clientX: to[0], clientY: to[1] })
+    }
+
+    it('starts with the image filling the canvas exactly', async () => {
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+
+      expect(canvasBox().style.aspectRatio).toBe('600 / 908')
+      expect([pct(background(), 'left'), pct(background(), 'top'), pct(background(), 'width'), pct(background(), 'height')]).toEqual([0, 0, 100, 100])
+    })
+
+    it('shows all 8 handles', async () => {
+      await startAdjustingTemplate()
+      expect(document.querySelectorAll('[data-canvas-handle]')).toHaveLength(8)
+    })
+
+    it('growing the right edge adds empty canvas beside the image, which keeps its size and position', async () => {
+      await startAdjustingTemplate()
+
+      drag('rm', [100, 0])
+
+      expect(canvasBox().style.aspectRatio).toBe('700 / 908')
+      expect(pct(background(), 'left')).toBeCloseTo(0, 5)
+      expect(pct(background(), 'width')).toBeCloseTo((600 / 700) * 100, 3) // still 600px, now of a 700px canvas
+    })
+
+    it('growing the left edge moves the image (and the captions) right by the same amount, so they stay put', async () => {
+      await startAdjustingTemplate()
+      const caption1Left = () => parseFloat(screen.getByText('Caption 1').style.left)
+
+      drag('lm', [-50, 0])
+
+      expect(canvasBox().style.aspectRatio).toBe('650 / 908')
+      expect(pct(background(), 'left')).toBeCloseTo((50 / 650) * 100, 3)
+      expect(caption1Left()).toBeCloseTo(((30 + 50) / 650) * 100, 3) // the mock caption sits at x=30
+    })
+
+    it('growing the top edge adds space above the image — room for a caption bar', async () => {
+      await startAdjustingTemplate()
+
+      drag('tm', [0, -120])
+
+      expect(canvasBox().style.aspectRatio).toBe('600 / 1028')
+      expect(pct(background(), 'top')).toBeCloseTo((120 / 1028) * 100, 3)
+      expect(pct(background(), 'height')).toBeCloseTo((908 / 1028) * 100, 3)
+    })
+
+    it('shrinking the canvas crops the image rather than squashing it', async () => {
+      await startAdjustingTemplate()
+
+      drag('tm', [0, 100]) // push the top edge 100px in
+
+      expect(canvasBox().style.aspectRatio).toBe('600 / 808')
+      expect(pct(background(), 'top')).toBeCloseTo((-100 / 808) * 100, 3) // the image's top 100px is now off the canvas
+      expect(pct(background(), 'height')).toBeCloseTo((908 / 808) * 100, 3) // and it is still its full 908px
+    })
+
+    it('crops the image with the canvas: the box that holds it hides anything hanging off', async () => {
+      await startAdjustingTemplate()
+      expect(canvasBox()).toHaveClass('overflow-hidden')
+    })
+
+    it('exports at the adjusted canvas size, with the image drawn at its offset', async () => {
+      vi.mocked(renderCreationToBlob).mockReset().mockResolvedValue(new Blob(['png'], { type: 'image/png' }))
+      vi.mocked(canShareFile).mockReturnValue(false)
+      vi.mocked(isMobileOrTabletDevice).mockReturnValue(false)
+      await startAdjustingTemplate()
+      drag('lm', [-50, 0])
+      fireEvent.pointerUp(handle('lm'))
+
+      await userEvent.click(screen.getByRole('button', { name: 'Export' }))
+
+      expect(renderCreationToBlob).toHaveBeenCalledWith(
+        expect.any(HTMLDivElement),
+        { image_width: 650, image_height: 908 },
+        expect.any(Array),
+        { background: { image: expect.any(HTMLImageElement), x: 50, y: 0, width: 600, height: 908 } },
+      )
+    })
+
+    it('saves the canvas size and where the image sits, and reopens exactly as adjusted', async () => {
+      vi.mocked(renderCreationToBlob).mockReset().mockResolvedValue(new Blob(['jpg'], { type: 'image/jpeg' }))
+      await startAdjustingTemplate()
+      drag('lm', [-50, 0])
+      fireEvent.pointerUp(handle('lm'))
+      await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Save' }))
+      await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Save' }))
+      await waitFor(() => expect(savedRows.at(-1)).toMatchObject({ source_type: 'template', template_id: 'tmpl-1' }))
+
+      const saved = savedRows.at(-1) as { canvas_data: Record<string, unknown> }
+      expect(saved.canvas_data).toMatchObject({ canvasWidth: 650, canvasHeight: 908, backgroundX: 50, backgroundY: 0 })
+    })
+
+    it('an unadjusted template saves no canvas fields at all, so older and newer saves look the same', async () => {
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+      await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Save' }))
+      await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Save' }))
+      await waitFor(() => expect(savedRows.at(-1)).toMatchObject({ source_type: 'template' }))
+
+      const saved = savedRows.at(-1) as { canvas_data: Record<string, unknown> }
+      expect(Object.keys(saved.canvas_data)).toEqual(['layers'])
+    })
+
+    it('reopens a saved adjusted template with its canvas size and image position restored', async () => {
+      savedRows.push({
+        id: 'adj-1',
+        name: 'Two Buttons 7',
+        tags: [],
+        source_type: 'template',
+        template_id: 'tmpl-1',
+        canvas_data: { layers: [], canvasWidth: 700, canvasHeight: 1008, backgroundX: 100, backgroundY: 60 },
+      })
+
+      renderEditor('/editor/adj-1')
+
+      await screen.findByRole('img', { name: 'Two Buttons' })
+      expect(canvasBox().style.aspectRatio).toBe('700 / 1008')
+      expect(pct(background(), 'left')).toBeCloseTo((100 / 700) * 100, 3)
+      expect(pct(background(), 'top')).toBeCloseTo((60 / 1008) * 100, 3)
+    })
+
+    it('counts as an edit, so picking another template afterwards asks before throwing the adjustment away', async () => {
+      await startAdjustingTemplate()
+      drag('rm', [100, 0]) // no layer edits at all — only the canvas size
+      fireEvent.pointerUp(handle('rm'))
+
+      await userEvent.click(screen.getByText('Plain Photo'))
+
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
     })
   })
 
@@ -1114,6 +1272,7 @@ describe('EditorPage', () => {
         expect.any(HTMLDivElement),
         { image_width: 400, image_height: 300 },
         expect.arrayContaining([expect.objectContaining({ type: 'image' })]),
+        { background: undefined }, // nothing beneath a freeform canvas
       )
       expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), 'vacation.png')
     })
@@ -1438,18 +1597,21 @@ describe('EditorPage', () => {
 
       await userEvent.click(screen.getByRole('button', { name: 'More options' }))
       await userEvent.click(screen.getByRole('menuitem', { name: 'Adjust Canvas' }))
-      expect(document.querySelectorAll(canvasHandleSelector)).toHaveLength(3)
+      expect(document.querySelectorAll(canvasHandleSelector)).toHaveLength(8) // 4 corners + 4 edges
 
       await userEvent.click(img) // selecting a layer exits adjust-canvas mode
       expect(document.querySelectorAll(canvasHandleSelector)).toHaveLength(0)
     })
 
-    it('the More Options menu has no Adjust Canvas item for a template or a blank canvas', async () => {
+    it('the More Options menu offers Adjust Canvas for a template too, and is unavailable on a blank canvas', async () => {
       renderEditor()
-      await userEvent.click(await screen.findByText('Two Buttons'))
+      await screen.findByRole('button', { name: 'Two Buttons' })
+      expect(screen.getByRole('button', { name: 'More options' })).toBeDisabled() // blank canvas: nothing to adjust
 
+      await userEvent.click(screen.getByText('Two Buttons'))
       await userEvent.click(screen.getByRole('button', { name: 'More options' }))
-      expect(screen.queryByRole('menuitem', { name: 'Adjust Canvas' })).not.toBeInTheDocument()
+
+      expect(screen.getByRole('menuitem', { name: 'Adjust Canvas' })).toBeInTheDocument()
     })
 
     it('dragging the bottom-right canvas handle grows the canvas, persisted through save', async () => {
@@ -1483,7 +1645,7 @@ describe('EditorPage', () => {
         toJSON: () => {},
       })
 
-      const brHandle = document.querySelectorAll('.border-neutral-500.bg-white')[2]
+      const brHandle = document.querySelector('[data-canvas-handle="br"]') as HTMLElement
       fireEvent.pointerDown(brHandle, { clientX: 0, clientY: 0 })
       fireEvent.pointerMove(brHandle, { clientX: 100, clientY: 50 })
       fireEvent.pointerUp(brHandle)
@@ -1496,6 +1658,145 @@ describe('EditorPage', () => {
       const saved = savedRows.at(-1) as { canvas_data?: { canvasWidth?: number; canvasHeight?: number } }
       expect(saved.canvas_data?.canvasWidth).toBe(500) // 400 + 100
       expect(saved.canvas_data?.canvasHeight).toBe(350) // 300 + 50
+    })
+
+    describe('adjusting from any edge or corner', () => {
+      async function startAdjusting() {
+        renderEditor()
+        await screen.findByRole('button', { name: 'Two Buttons' })
+        await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+        await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+        await selectImageFile()
+        const img = await screen.findByAltText('')
+        await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+        await userEvent.click(screen.getByRole('menuitem', { name: 'Adjust Canvas' }))
+        // jsdom lays nothing out, so give the canvas box a real 400px-wide rect
+        // (1:1 with the 400x300 canvas) for the pointer math to divide by.
+        const canvasEl = document.querySelector('[style*="aspect-ratio"]') as HTMLElement
+        vi.spyOn(canvasEl, 'getBoundingClientRect').mockReturnValue({ width: 400, height: 300, top: 0, left: 0, right: 400, bottom: 300, x: 0, y: 0, toJSON: () => {} })
+        return { img, canvasEl }
+      }
+      const handle = (key: string) => document.querySelector(`[data-canvas-handle="${key}"]`) as HTMLElement
+      const drag = (key: string, from: [number, number], to: [number, number]) => {
+        fireEvent.pointerDown(handle(key), { clientX: from[0], clientY: from[1] })
+        fireEvent.pointerMove(handle(key), { clientX: to[0], clientY: to[1] })
+      }
+
+      it('hides the floating + button while adjusting, since it sits over the bottom-right handle and would block it', async () => {
+        const { img } = await startAdjusting()
+        expect(screen.queryByRole('button', { name: 'Open add menu' })).not.toBeInTheDocument()
+
+        await userEvent.click(img) // selecting a layer leaves adjust mode
+        expect(screen.getByRole('button', { name: 'Open add menu' })).toBeInTheDocument()
+      })
+
+      it('has a handle at all 8 spots, not just the right, bottom and bottom-right', async () => {
+        await startAdjusting()
+        expect([...document.querySelectorAll('[data-canvas-handle]')].map((h) => h.getAttribute('data-canvas-handle')).sort()).toEqual(
+          ['bl', 'bm', 'br', 'lm', 'rm', 'tl', 'tm', 'tr'],
+        )
+      })
+
+      it('dragging the left edge outward widens the canvas and shifts the image right so it stays put on screen', async () => {
+        const { img, canvasEl } = await startAdjusting()
+
+        drag('lm', [0, 0], [-50, 0]) // pull the left edge 50px further left
+
+        expect(canvasEl.style.aspectRatio).toBe('450 / 300')
+        // The image was at x=0; it now sits 50px in from the new left edge (50/450 = 11.11%).
+        expect(parseFloat(img.parentElement!.style.left)).toBeCloseTo((50 / 450) * 100, 3)
+        expect(parseFloat(img.parentElement!.style.width)).toBeCloseTo((400 / 450) * 100, 3)
+      })
+
+      it('dragging the top edge outward grows the canvas upward and shifts the image down', async () => {
+        const { img, canvasEl } = await startAdjusting()
+
+        drag('tm', [0, 0], [0, -30])
+
+        expect(canvasEl.style.aspectRatio).toBe('400 / 330')
+        expect(parseFloat(img.parentElement!.style.top)).toBeCloseTo((30 / 330) * 100, 3)
+      })
+
+      it('dragging a corner resizes and shifts on both axes at once', async () => {
+        const { img, canvasEl } = await startAdjusting()
+
+        drag('tl', [0, 0], [-40, -20])
+
+        expect(canvasEl.style.aspectRatio).toBe('440 / 320')
+        expect(parseFloat(img.parentElement!.style.left)).toBeCloseTo((40 / 440) * 100, 3)
+        expect(parseFloat(img.parentElement!.style.top)).toBeCloseTo((20 / 320) * 100, 3)
+      })
+
+      it('shrinking from the left crops instead of squashing: the image moves off the left edge', async () => {
+        const { img, canvasEl } = await startAdjusting()
+
+        drag('lm', [0, 0], [100, 0]) // push the left edge 100px in
+
+        expect(canvasEl.style.aspectRatio).toBe('300 / 300')
+        expect(parseFloat(img.parentElement!.style.left)).toBeCloseTo((-100 / 300) * 100, 3)
+      })
+
+      it("measures every move from where the drag began, so wandering back and forth doesn't accumulate", async () => {
+        const { img, canvasEl } = await startAdjusting()
+        fireEvent.pointerDown(handle('lm'), { clientX: 0, clientY: 0 })
+
+        fireEvent.pointerMove(handle('lm'), { clientX: -80, clientY: 0 })
+        fireEvent.pointerMove(handle('lm'), { clientX: -20, clientY: 0 })
+        fireEvent.pointerMove(handle('lm'), { clientX: -50, clientY: 0 })
+
+        expect(canvasEl.style.aspectRatio).toBe('450 / 300')
+        expect(parseFloat(img.parentElement!.style.left)).toBeCloseTo((50 / 450) * 100, 3)
+      })
+
+      it('shifts text boxes too, not just images, so everything stays put relative to the artwork', async () => {
+        renderEditor()
+        await screen.findByRole('button', { name: 'Two Buttons' })
+        await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+        await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+        await selectImageFile()
+        await screen.findByAltText('')
+        await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+        await userEvent.click(screen.getByRole('button', { name: 'Add Text' }))
+        const xBefore = (parseFloat((document.querySelector('[contenteditable]') as HTMLElement).style.left) / 100) * 400 // as canvas px
+        await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+        await userEvent.click(screen.getByRole('menuitem', { name: 'Adjust Canvas' }))
+        const canvasEl = document.querySelector('[style*="aspect-ratio"]') as HTMLElement
+        vi.spyOn(canvasEl, 'getBoundingClientRect').mockReturnValue({ width: 400, height: 300, top: 0, left: 0, right: 400, bottom: 300, x: 0, y: 0, toJSON: () => {} })
+
+        drag('lm', [0, 0], [-100, 0])
+
+        const textBox = document.querySelector('[contenteditable]') as HTMLElement
+        expect(canvasEl.style.aspectRatio).toBe('500 / 300')
+        expect(parseFloat(textBox.style.left)).toBeCloseTo(((xBefore + 100) / 500) * 100, 3)
+      })
+
+      it("converts pointer distance to canvas pixels with the on-screen scale from when the drag began, even though the view zooms out to fit as the canvas grows", async () => {
+        const { canvasEl } = await startAdjusting()
+        let boxWidth = 400 // at pointer-down the box is 400px wide for a 400px canvas (1:1)...
+        vi.spyOn(canvasEl, 'getBoundingClientRect').mockImplementation(
+          () => ({ width: boxWidth, height: 300, top: 0, left: 0, right: boxWidth, bottom: 300, x: 0, y: 0, toJSON: () => {} }),
+        )
+        fireEvent.pointerDown(handle('rm'), { clientX: 0, clientY: 0 })
+
+        boxWidth = 200 // ...then the box shrinks (zoomed out to fit) while dragging.
+        // 60px of pointer movement at the STARTING 1:1 scale is 60 canvas px;
+        // dividing by the shrunken box would wrongly give 120.
+        fireEvent.pointerMove(handle('rm'), { clientX: 60, clientY: 0 })
+
+        expect(canvasEl.style.aspectRatio).toBe('460 / 300')
+      })
+
+      it('keeps the box at the canvas true aspect ratio however far it is grown, by sizing to fit the space available', async () => {
+        const { canvasEl } = await startAdjusting()
+
+        drag('rm', [0, 0], [4000, 0]) // far wider than any screen
+
+        // The exact ratio (a CSS variable the width formula reads), not a height-fixed guess
+        // that a width cap can squash.
+        const ratio = parseFloat(canvasEl.style.getPropertyValue('--canvas-ratio'))
+        expect(ratio).toBeCloseTo(4400 / 300, 3)
+        expect(canvasEl.className).toMatch(/w-\[min\(/)
+      })
     })
   })
 })

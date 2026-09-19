@@ -18,7 +18,10 @@ import {
   clampImagePan,
   applyCropFrameResizeDelta,
   MIN_LAYER_SIZE,
+  MIN_CANVAS_SIZE,
   reorderLayer,
+  resizeCanvas,
+  layerClipPath,
 } from './layers'
 import type { Layer, ImageLayer } from './layers'
 
@@ -478,5 +481,81 @@ describe('reorderLayer', () => {
   it('works the same for image layers as for text layers', () => {
     const img: Layer = { type: 'image', id: 'img', src: 'x', naturalWidth: 10, naturalHeight: 10, x: 0, y: 0, width: 10, height: 10 }
     expect(ids(reorderLayer([img, text('a')], 'img', 'front'))).toEqual(['a', 'img'])
+  })
+})
+
+describe('resizeCanvas', () => {
+  const start = { width: 400, height: 300 }
+
+  it('growing from the right or bottom edge changes only the size — the origin, so every layer, stays put', () => {
+    expect(resizeCanvas(start, 50, 0, 1, 0)).toEqual({ width: 450, height: 300, offsetX: 0, offsetY: 0 })
+    expect(resizeCanvas(start, 0, 40, 0, 1)).toEqual({ width: 400, height: 340, offsetX: 0, offsetY: 0 })
+  })
+
+  it('growing from the left edge widens the canvas and shifts every layer right by the same amount', () => {
+    // Dragging the left edge 50px further left (delta -50) adds 50px of canvas
+    // on the left, so what was at x=0 now sits at x=50.
+    expect(resizeCanvas(start, -50, 0, -1, 0)).toEqual({ width: 450, height: 300, offsetX: 50, offsetY: 0 })
+  })
+
+  it('growing from the top edge is the same on the vertical axis', () => {
+    expect(resizeCanvas(start, 0, -40, 0, -1)).toEqual({ width: 400, height: 340, offsetX: 0, offsetY: 40 })
+  })
+
+  it('shrinking from the left or top edge moves layers the other way, so they stay where they were relative to the far edge', () => {
+    expect(resizeCanvas(start, 60, 0, -1, 0)).toEqual({ width: 340, height: 300, offsetX: -60, offsetY: 0 })
+    expect(resizeCanvas(start, 0, 30, 0, -1)).toEqual({ width: 400, height: 270, offsetX: 0, offsetY: -30 })
+  })
+
+  it('a corner handle resizes both axes at once', () => {
+    expect(resizeCanvas(start, -10, -20, -1, -1)).toEqual({ width: 410, height: 320, offsetX: 10, offsetY: 20 })
+    expect(resizeCanvas(start, 10, 20, 1, 1)).toEqual({ width: 410, height: 320, offsetX: 0, offsetY: 0 })
+    expect(resizeCanvas(start, 10, -20, 1, -1)).toEqual({ width: 410, height: 320, offsetX: 0, offsetY: 20 })
+  })
+
+  it('never shrinks below the minimum size, and a clamped left/top drag only shifts layers as far as the edge really moved', () => {
+    expect(resizeCanvas(start, -900, 0, 1, 0).width).toBe(MIN_CANVAS_SIZE)
+    // Dragging the left edge far right: the canvas stops at the minimum, so the
+    // edge only moved 300px (400 -> 100), not 900.
+    expect(resizeCanvas(start, 900, 0, -1, 0)).toEqual({ width: MIN_CANVAS_SIZE, height: 300, offsetX: -300, offsetY: 0 })
+  })
+
+  it("ignores movement on an axis the handle doesn't control", () => {
+    expect(resizeCanvas(start, 500, 500, 0, 0)).toEqual({ width: 400, height: 300, offsetX: 0, offsetY: 0 })
+    expect(resizeCanvas(start, 80, 999, 1, 0).height).toBe(300)
+  })
+})
+
+describe('layerClipPath', () => {
+  const canvas = { width: 300, height: 200 }
+  const image = (x: number, y: number, width = 100, height = 50): Layer => ({
+    type: 'image', id: 'i', src: 's', naturalWidth: width, naturalHeight: height, x, y, width, height,
+  })
+
+  it('returns nothing for a layer entirely inside the canvas — no clipping to apply', () => {
+    expect(layerClipPath(image(10, 10), canvas)).toBeUndefined()
+    expect(layerClipPath(image(200, 150), canvas)).toBeUndefined() // exactly touching the edges
+  })
+
+  it('clips the part hanging off the left or top edge, in canvas-width container units', () => {
+    // 60px off the left of a 300px-wide canvas = 20cqw.
+    expect(layerClipPath(image(-60, 10), canvas)).toContain('20cqw')
+    expect(layerClipPath(image(-60, 10), canvas)).toMatch(/^inset\(0px .* 20cqw\)$/)
+    // 30px off the top = 10cqw (cqw is always relative to the canvas WIDTH).
+    expect(layerClipPath(image(10, -30), canvas)).toMatch(/^inset\(10cqw /)
+  })
+
+  it('clips the part past the right or bottom edge by how much of the layer is still inside', () => {
+    // A layer at x=250 has (300-250)=50px inside: 50/300 = 16.67cqw visible.
+    const right = layerClipPath(image(250, 10), canvas)!
+    expect(right).toContain('max(0px, calc(100% - 16.6666')
+    expect(right.startsWith('inset(0px ')).toBe(true)
+    // At y=180 there are 20px left: 6.667cqw of visible height.
+    expect(layerClipPath(image(10, 180), canvas)).toContain('calc(100% - 6.6666')
+  })
+
+  it('needs no layer height to work, so an auto-height text box is clipped the same way', () => {
+    const text: Layer = { type: 'text', id: 't', label: 'hi', x: -30, y: 5, width: 100, height: 54, fontSize: 30, heightAuto: true }
+    expect(layerClipPath(text, canvas)).toMatch(/10cqw\)$/)
   })
 })

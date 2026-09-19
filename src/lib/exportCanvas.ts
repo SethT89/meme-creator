@@ -140,15 +140,20 @@ export interface RenderOptions {
   // onto a white background.
   type?: 'image/png' | 'image/jpeg'
   quality?: number // JPEG only, 0-1
+  // A picture to draw underneath every layer — a template's image — at this
+  // position and size, in the creation's real pixels. It may sit anywhere in
+  // (or hang off) the canvas: enlarging a template's canvas leaves it off-center
+  // with empty space around it, and shrinking the canvas below it crops it.
+  background?: { image: HTMLImageElement; x: number; y: number; width: number; height: number }
 }
 
 // Renders a creation onto an off-screen canvas at its real pixel
 // resolution (not the on-screen display size) and resolves a Blob — a
 // full-size PNG unless `options` say otherwise (see RenderOptions).
-// `display` is the on-screen element the creation is shown in: a template's
-// <img>, which is also drawn as the background, or a freeform canvas's
-// <div>, which has no background of its own — canvas space not covered by a
-// layer stays transparent, matching the checkerboard shown on screen.
+// `display` is the on-screen canvas element; it's only measured (for the
+// display-to-real ratio the fixed CSS padding needs), never drawn. Canvas
+// space not covered by the `background` or a layer stays transparent,
+// matching the checkerboard shown on screen.
 // Layer x/y/width/height/fontSize are already stored in that same
 // real-pixel coordinate space (see layers.ts), so no scaling math is
 // needed for those — only the fixed-px CSS padding needs to know the
@@ -187,16 +192,16 @@ export async function renderCreationToBlob(
     }),
   )
 
-  if (display instanceof HTMLImageElement) {
-    ctx.drawImage(display, 0, 0, templateRow.image_width, templateRow.image_height)
+  if (options.background) {
+    const { image, x, y, width, height } = options.background
+    ctx.drawImage(image, x, y, width, height)
   }
   // The element's on-screen rendered width in CSS px (not the source
   // file's intrinsic resolution) — the same value EditorPage.tsx's own
-  // drag/resize math already uses as "displayScale". An <img>'s own .width
-  // is used for a template; a freeform <div> has none, so its measured box
-  // is used instead. Falls back to no scaling (1) when unavailable (e.g. an
-  // element never attached to the DOM, as in this file's own tests).
-  const displayWidth = display instanceof HTMLImageElement ? display.width : display.getBoundingClientRect().width
+  // drag/resize math already uses as "displayScale". Falls back to no scaling
+  // (1) when unavailable (e.g. an element never attached to the DOM, as in
+  // this file's own tests).
+  const displayWidth = display.getBoundingClientRect().width
   const scale = displayWidth > 0 ? templateRow.image_width / displayWidth : 1
 
   // Drawn in layer order so stacking matches the on-screen editor.
