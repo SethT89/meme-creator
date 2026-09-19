@@ -59,6 +59,8 @@ type Source =
       name: string
       templateId: string
       blankImageUrl: string
+      // Small thumbnail shown behind the full image until it has loaded.
+      thumbnailUrl?: string | null
       canvasWidth?: number
       canvasHeight?: number
       backgroundX?: number
@@ -398,6 +400,7 @@ export function EditorPage() {
           name: template.name,
           templateId: template.id,
           blankImageUrl: template.blank_image_url,
+          thumbnailUrl: template.thumbnail_url,
           ...(adjusted
             ? { canvasWidth: saved.canvasWidth, canvasHeight: saved.canvasHeight, backgroundX: saved.backgroundX ?? 0, backgroundY: saved.backgroundY ?? 0 }
             : {}),
@@ -460,7 +463,13 @@ export function EditorPage() {
   }
 
   function loadTemplate(template: SelectedTemplate) {
-    setSource({ type: 'template', name: template.name, templateId: template.id, blankImageUrl: template.blankImageUrl })
+    setSource({
+      type: 'template',
+      name: template.name,
+      templateId: template.id,
+      blankImageUrl: template.blankImageUrl,
+      thumbnailUrl: template.thumbnailUrl,
+    })
     setSavedMeta(null)
     setSelectedFieldId(null)
     setEditingLayerId(null)
@@ -952,9 +961,23 @@ export function EditorPage() {
     return { image: bgImgRef.current, ...templateBackground }
   }
 
+  // The list only preloads thumbnails, so the full-size template image can
+  // still be downloading when someone hits Export or Save right after picking a
+  // template. Drawing an unfinished <img> would put a blank template in the
+  // file, so wait for it. decode() also rejects for a broken image (and doesn't
+  // exist in jsdom) — neither should block: that case just goes out without it.
+  async function whenTemplateImageReady() {
+    try {
+      await bgImgRef.current?.decode?.()
+    } catch {
+      // see above
+    }
+  }
+
   async function renderPreviewBlob(): Promise<Blob | null> {
     if (!imgRef.current || !activeCanvas) return null
     try {
+      await whenTemplateImageReady()
       const blob = await renderCreationToBlob(
         imgRef.current,
         { image_width: activeCanvas.width, image_height: activeCanvas.height },
@@ -1013,6 +1036,7 @@ export function EditorPage() {
     if (!source || !activeCanvas || !imgRef.current) return
     setExporting(true)
     try {
+      await whenTemplateImageReady()
       const blob = await renderCreationToBlob(
         imgRef.current,
         { image_width: activeCanvas.width, image_height: activeCanvas.height },
@@ -1183,6 +1207,11 @@ export function EditorPage() {
               >
                 {source.type === 'template' && templateBackground && (
                   <img
+                    // A fresh element per template, not one reused with a new
+                    // src: a reused <img> keeps painting the PREVIOUS template's
+                    // bitmap until the new file arrives, which now (the list only
+                    // preloads thumbnails, not full images) is a noticeable wait.
+                    key={source.templateId}
                     ref={bgImgRef}
                     src={source.blankImageUrl}
                     alt={source.name}
@@ -1200,8 +1229,13 @@ export function EditorPage() {
                     // (fill) would stretch that old bitmap into the new shape
                     // for a moment (the "squished for a second" glitch).
                     // max-w-none overrides Tailwind Preflight's img max-width.
-                    className="pointer-events-none absolute max-w-none select-none object-contain"
+                    className="pointer-events-none absolute max-w-none select-none bg-contain bg-center bg-no-repeat object-contain"
                     style={{
+                      // The thumbnail is already in the browser (the list shows
+                      // it), so it appears instantly, blurry, behind the empty
+                      // <img>; the sharp image paints over it once it arrives.
+                      // bg-contain matches object-contain so they line up.
+                      ...(source.thumbnailUrl ? { backgroundImage: `url(${source.thumbnailUrl})` } : {}),
                       left: `${(templateBackground.x / activeCanvas.width) * 100}%`,
                       top: `${(templateBackground.y / activeCanvas.height) * 100}%`,
                       width: `${(templateBackground.width / activeCanvas.width) * 100}%`,

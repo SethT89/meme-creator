@@ -1,8 +1,11 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TemplateSidebar } from './TemplateSidebar'
+
+vi.mock('../../lib/prefetchImage', () => ({ prefetchImage: vi.fn() }))
+import { prefetchImage } from '../../lib/prefetchImage'
 
 const mockTemplates = [
   {
@@ -87,6 +90,8 @@ describe('TemplateSidebar', () => {
       id: 't1',
       name: 'Two Buttons',
       blankImageUrl: 'https://example.com/two-buttons.jpg',
+      // Handed along so the canvas can show it instantly while the full image loads.
+      thumbnailUrl: 'https://example.com/thumbs/two-buttons.jpg',
       imageWidth: 600,
       imageHeight: 908,
     })
@@ -147,6 +152,34 @@ describe('TemplateSidebar', () => {
     const scrollArea = card.parentElement as HTMLElement
     expect(scrollArea).toHaveClass('overflow-y-auto') // the element that owns the scrollbar
     expect(scrollArea).toHaveClass('pr-3')
+  })
+
+  describe('preloading the full image', () => {
+    beforeEach(() => vi.mocked(prefetchImage).mockClear())
+
+    it('downloads nothing extra just by showing the list (that is the whole point of thumbnails)', async () => {
+      renderWithQuery(<TemplateSidebar selectedTemplateId={undefined} onSelectTemplate={vi.fn()} />)
+      await screen.findByRole('button', { name: 'Two Buttons' })
+      expect(prefetchImage).not.toHaveBeenCalled()
+    })
+
+    it('starts loading a template\'s full image when the pointer moves onto its card', async () => {
+      renderWithQuery(<TemplateSidebar selectedTemplateId={undefined} onSelectTemplate={vi.fn()} />)
+      await userEvent.hover(await screen.findByRole('button', { name: 'Two Buttons' }))
+      expect(prefetchImage).toHaveBeenCalledWith('https://example.com/two-buttons.jpg')
+    })
+
+    it('also does so on keyboard focus, and on the press itself (touch has no hover)', async () => {
+      renderWithQuery(<TemplateSidebar selectedTemplateId={undefined} onSelectTemplate={vi.fn()} />)
+      const drake = await screen.findByRole('button', { name: 'Drake' })
+
+      drake.focus()
+      expect(prefetchImage).toHaveBeenCalledWith('https://example.com/drake.jpg')
+
+      vi.mocked(prefetchImage).mockClear()
+      fireEvent.pointerDown(await screen.findByRole('button', { name: 'Skydiving Chicken' }))
+      expect(prefetchImage).toHaveBeenCalledWith('https://example.com/chicken.jpg')
+    })
   })
 
   describe('searching', () => {
@@ -227,6 +260,7 @@ describe('TemplateSidebar', () => {
         id: 't3',
         name: 'Skydiving Chicken',
         blankImageUrl: 'https://example.com/chicken.jpg',
+        thumbnailUrl: null, // this fixture has no thumbnail
         imageWidth: 500,
         imageHeight: 400,
       })

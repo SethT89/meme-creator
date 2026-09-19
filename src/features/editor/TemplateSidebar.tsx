@@ -2,12 +2,16 @@ import { useMemo, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { useTemplatesByUsage, useLogTemplateUsage } from '../../lib/queries/templates'
 import { searchTemplates } from '../../lib/templateSearch'
+import { prefetchImage } from '../../lib/prefetchImage'
 import { TemplateSearchInput } from './TemplateSearchInput'
 
 export interface SelectedTemplate {
   id: string
   name: string
   blankImageUrl: string
+  // The small thumbnail the list already loaded: the canvas shows it instantly
+  // as a placeholder while the full-size blankImageUrl downloads.
+  thumbnailUrl?: string | null
   imageWidth: number
   imageHeight: number
 }
@@ -28,9 +32,23 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
   const searching = query.trim() !== ''
   const status = !searching ? '' : visible.length === 0 ? 'No memes match' : `${visible.length} ${visible.length === 1 ? 'meme' : 'memes'}`
 
-  function pick(t: { id: string; name: string; blank_image_url: string; image_width: number; image_height: number }) {
+  function pick(t: {
+    id: string
+    name: string
+    blank_image_url: string
+    thumbnail_url?: string | null
+    image_width: number
+    image_height: number
+  }) {
     logUsage.mutate(t.id)
-    onSelectTemplate({ id: t.id, name: t.name, blankImageUrl: t.blank_image_url, imageWidth: t.image_width, imageHeight: t.image_height })
+    onSelectTemplate({
+      id: t.id,
+      name: t.name,
+      blankImageUrl: t.blank_image_url,
+      thumbnailUrl: t.thumbnail_url ?? null,
+      imageWidth: t.image_width,
+      imageHeight: t.image_height,
+    })
     setDrawerOpen(false)
   }
 
@@ -111,6 +129,13 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
             type="button"
             data-template-card
             onClick={() => pick(t)}
+            // The list itself only loads small thumbnails, so start fetching
+            // the full image the moment there's a sign of intent — hover or
+            // keyboard focus on desktop, the press itself on touch — instead
+            // of when the click lands. Usually that hides most of the wait.
+            onPointerEnter={() => prefetchImage(t.blank_image_url)}
+            onPointerDown={() => prefetchImage(t.blank_image_url)}
+            onFocus={() => prefetchImage(t.blank_image_url)}
             // Selected is its own persistent indicator (blue border), kept
             // deliberately separate from hover/active — those two use a
             // plain background change so they read as momentary, ordinary

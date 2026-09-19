@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, within, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -22,6 +22,7 @@ const mockTemplate = {
   id: 'tmpl-1',
   name: 'Two Buttons',
   blank_image_url: 'https://example.com/blank.jpg',
+  thumbnail_url: 'https://example.com/thumbs/blank.jpg',
   image_width: 600,
   image_height: 908,
 }
@@ -1276,6 +1277,47 @@ describe('EditorPage', () => {
     })
   })
 
+  describe('template image while the full-size file loads', () => {
+    it('shows the small thumbnail behind the full image, so picking a template is never a blank wait', async () => {
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+
+      const image = await screen.findByRole('img', { name: 'Two Buttons' })
+      expect(image).toHaveAttribute('src', 'https://example.com/blank.jpg') // the sharp one is what's really loading
+      expect(image.style.backgroundImage).toContain('https://example.com/thumbs/blank.jpg')
+    })
+
+    it('shows no placeholder for a template that has no thumbnail', async () => {
+      renderEditor()
+      await userEvent.click(await screen.findByText('Plain Photo'))
+
+      const image = await screen.findByRole('img', { name: 'Plain Photo' })
+      expect(image.style.backgroundImage).toBe('')
+    })
+
+    it('does the same when reopening a saved creation', async () => {
+      savedRows.push({ id: 'thumb-1', name: 'Two Buttons 9', tags: [], source_type: 'template', template_id: 'tmpl-1', canvas_data: {} })
+
+      renderEditor('/editor/thumb-1')
+
+      const image = await screen.findByRole('img', { name: 'Two Buttons' })
+      expect(image.style.backgroundImage).toContain('https://example.com/thumbs/blank.jpg')
+    })
+
+    it('swaps in a fresh image element for each template, so the previous template never lingers while the next one loads', async () => {
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+      const first = await screen.findByRole('img', { name: 'Two Buttons' })
+
+      await userEvent.click(screen.getByText('Plain Photo'))
+      if (screen.queryByRole('dialog')) await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /discard|confirm|yes|continue/i }))
+
+      const second = await screen.findByRole('img', { name: 'Plain Photo' })
+      expect(second).not.toBe(first)
+      expect(first).not.toBeInTheDocument()
+    })
+  })
+
   describe('Export', () => {
     beforeEach(() => {
       vi.mocked(renderCreationToBlob).mockReset().mockResolvedValue(new Blob(['fake'], { type: 'image/png' }))
@@ -1283,6 +1325,35 @@ describe('EditorPage', () => {
       vi.mocked(isMobileOrTabletDevice).mockReset().mockReturnValue(false)
       vi.mocked(shareFile).mockReset().mockResolvedValue(undefined)
       vi.mocked(downloadBlob).mockReset()
+    })
+
+    afterEach(() => {
+      Reflect.deleteProperty(HTMLImageElement.prototype, 'decode')
+    })
+
+    it('waits for the full-size template image to finish loading before rendering, so a quick click never exports a blank template', async () => {
+      let finishLoading!: () => void
+      const decode = vi.fn(() => new Promise<void>((resolve) => (finishLoading = resolve)))
+      Object.defineProperty(HTMLImageElement.prototype, 'decode', { value: decode, configurable: true })
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+
+      await userEvent.click(screen.getByRole('button', { name: 'Export' }))
+      expect(decode).toHaveBeenCalled()
+      expect(renderCreationToBlob).not.toHaveBeenCalled()
+
+      finishLoading()
+      await waitFor(() => expect(renderCreationToBlob).toHaveBeenCalled())
+    })
+
+    it('still exports when the template image fails to decode (it just goes out without it, as before)', async () => {
+      Object.defineProperty(HTMLImageElement.prototype, 'decode', { value: () => Promise.reject(new Error('broken')), configurable: true })
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+
+      await userEvent.click(screen.getByRole('button', { name: 'Export' }))
+
+      await waitFor(() => expect(renderCreationToBlob).toHaveBeenCalled())
     })
 
     it('downloads the rendered PNG and shows a toast when file-sharing is unsupported', async () => {
