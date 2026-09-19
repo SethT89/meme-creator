@@ -1256,7 +1256,7 @@ export function EditorPage() {
               </div>
             )}
             {source?.type === 'freeform' && !activeCanvas && (
-              <div className="flex h-80 w-80 items-center justify-center border border-border bg-muted text-sm text-muted-foreground">
+              <div className="flex h-80 w-80 max-w-[calc(100vw-3.75rem)] items-center justify-center border border-border bg-muted text-sm text-muted-foreground">
                 {source.name}
               </div>
             )}
