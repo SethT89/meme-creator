@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { SWATCH_ROWS } from '../../lib/palette'
 import type { TextStylePatch } from '../../lib/layers'
+import { keepInViewport } from '../../lib/viewportClamp'
 
 type Tab = 'fill' | 'outline'
 
@@ -45,7 +46,7 @@ export function ColorPicker({ color, strokeColor, open, onToggle, onChange }: Co
         />
       </button>
       {open && (
-        <div role="dialog" aria-label="Text color" className="absolute bottom-full left-1/2 mb-2 w-max -translate-x-1/2 rounded-xl bg-neutral-900 p-3 shadow-lg">
+        <div ref={keepInViewport} role="dialog" aria-label="Text color" className="absolute bottom-full left-1/2 mb-2 w-max -translate-x-1/2 rounded-xl bg-neutral-900 p-3 shadow-lg">
           <div className="mb-3 flex items-center gap-2 border-b border-neutral-700 pb-2">
             <div role="tablist" className="flex gap-1">
               {(['fill', 'outline'] as const).map((name) => (

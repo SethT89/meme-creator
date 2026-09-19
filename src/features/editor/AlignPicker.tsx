@@ -1,4 +1,5 @@
 import type { TextAlign } from '../../lib/layers'
+import { keepInViewport } from '../../lib/viewportClamp'
 
 const ALIGN_OPTIONS: { value: TextAlign; label: string }[] = [
   { value: 'left', label: 'Align left' },
@@ -42,7 +43,7 @@ export function AlignPicker({ value, open, onToggle, onChange }: AlignPickerProp
         <AlignIcon align={value} />
       </button>
       {open && (
-        <div role="menu" aria-label="Text alignment options" className="absolute bottom-full left-1/2 mb-2 w-40 -translate-x-1/2 rounded-lg bg-neutral-900 p-1.5 shadow-lg">
+        <div ref={keepInViewport} role="menu" aria-label="Text alignment options" className="absolute bottom-full left-1/2 mb-2 w-40 -translate-x-1/2 rounded-lg bg-neutral-900 p-1.5 shadow-lg">
           {ALIGN_OPTIONS.map((option) => (
             <button
               key={option.value}

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { keepInViewport } from '../../lib/viewportClamp'
 import { SIZE_PRESETS, clampFontSize, sizeLabel } from '../../lib/layers'
 import type { ReorderAction, ResolvedTextStyle, TextStylePatch } from '../../lib/layers'
 import { AlignPicker } from './AlignPicker'
@@ -86,7 +87,7 @@ export function PropertyBar({
               Size: {sizeLabel(fontSize)}
             </button>
             {openMenu === 'size' && (
-              <div className="absolute bottom-full left-1/2 mb-2 w-40 -translate-x-1/2 rounded-lg bg-neutral-900 p-1.5 shadow-lg">
+              <div ref={keepInViewport} className="absolute bottom-full left-1/2 mb-2 w-40 -translate-x-1/2 rounded-lg bg-neutral-900 p-1.5 shadow-lg">
                 {SIZE_PRESETS.map((preset) => (
                   <div
                     key={preset.label}
@@ -168,7 +169,7 @@ export function PropertyBar({
           Layering
         </button>
         {openMenu === 'layering' && (
-          <div role="menu" className="absolute bottom-full left-1/2 mb-2 w-48 -translate-x-1/2 rounded-lg bg-neutral-900 p-1.5 shadow-lg">
+          <div ref={keepInViewport} role="menu" className="absolute bottom-full left-1/2 mb-2 w-48 -translate-x-1/2 rounded-lg bg-neutral-900 p-1.5 shadow-lg">
             {LAYERING_OPTIONS.map((option) => (
               <button
                 key={option.action}

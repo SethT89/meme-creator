@@ -1,5 +1,6 @@
 import { FONT_OPTIONS, fontFamilyCss, getFontOption } from '../../lib/fonts'
 import type { FontId } from '../../lib/fonts'
+import { keepInViewport } from '../../lib/viewportClamp'
 
 interface FontPickerProps {
   // null = a legacy layer on the system font (no chosen typeface).
@@ -46,7 +47,7 @@ export function FontPicker({ fontId, open, onToggle, onChange }: FontPickerProps
         <Chevron />
       </button>
       {open && (
-        <div role="menu" aria-label="Fonts" className="absolute bottom-full left-1/2 mb-2 w-56 -translate-x-1/2 rounded-lg bg-neutral-900 p-1.5 shadow-lg">
+        <div ref={keepInViewport} role="menu" aria-label="Fonts" className="absolute bottom-full left-1/2 mb-2 w-56 -translate-x-1/2 rounded-lg bg-neutral-900 p-1.5 shadow-lg">
           {FONT_OPTIONS.map((font) => (
             <button
               key={font.id}

@@ -42,6 +42,7 @@ import {
 } from '../../lib/layers'
 import type { Layer, TextLayer, ImageLayer, ImageBounds, ResizeSign, ReorderAction, TextStylePatch } from '../../lib/layers'
 import { renderCreationToBlob } from '../../lib/exportCanvas'
+import { keepInViewport } from '../../lib/viewportClamp'
 import type { RenderOptions } from '../../lib/exportCanvas'
 import { canShareFile, downloadBlob, isMobileOrTabletDevice, sanitizeFilename, shareFile } from '../../lib/exportDelivery'
 import { prepareImageForUpload } from '../../lib/imageUpload'
@@ -1462,6 +1463,10 @@ export function EditorPage() {
                             // The max-w caps it to the screen so it only wraps when
                             // it genuinely can't fit.
                             className="fixed z-50 w-max max-w-[calc(100vw-1rem)]"
+                            // Centered on its layer, so a layer near either screen edge
+                            // would push it off-screen; re-fitted on every render because
+                            // the bar moves with the layer.
+                            ref={(el) => keepInViewport(el)}
                             style={{
                               left: propertyBarPos.left,
                               top: propertyBarPos.top,
