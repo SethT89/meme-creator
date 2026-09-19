@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TemplateSidebar } from './TemplateSidebar'
@@ -152,6 +152,98 @@ describe('TemplateSidebar', () => {
     const scrollArea = card.parentElement as HTMLElement
     expect(scrollArea).toHaveClass('overflow-y-auto') // the element that owns the scrollbar
     expect(scrollArea).toHaveClass('pr-3')
+  })
+
+  describe('mobile drawer', () => {
+    const scrollTo = vi.fn()
+    beforeEach(() => {
+      scrollTo.mockReset()
+      window.scrollTo = scrollTo as unknown as typeof window.scrollTo
+    })
+    afterEach(() => {
+      document.body.removeAttribute('style')
+      Reflect.deleteProperty(window, 'matchMedia')
+    })
+
+    const openDrawer = async () => {
+      renderWithQuery(<TemplateSidebar selectedTemplateId={undefined} onSelectTemplate={vi.fn()} />)
+      await screen.findByRole('button', { name: 'Drake' })
+      const toggle = screen.getByRole('button', { name: /^☰ Templates$/ })
+      await userEvent.click(toggle)
+      return toggle
+    }
+
+    it('locks the page behind the open drawer, so it cannot scroll under your finger', async () => {
+      expect(document.body.style.position).toBe('')
+      await openDrawer()
+      expect(document.body.style.position).toBe('fixed')
+    })
+
+    it('unlocks the page when the drawer is closed with its toggle', async () => {
+      const toggle = await openDrawer()
+      await userEvent.click(toggle)
+      expect(toggle).toHaveAttribute('aria-expanded', 'false')
+      expect(document.body.style.position).toBe('')
+      expect(scrollTo).toHaveBeenCalled()
+    })
+
+    it('unlocks the page when the dark strip beside the panel is tapped', async () => {
+      await openDrawer()
+      const scrim = document.querySelector('.bg-black\\/50') as HTMLElement
+      await userEvent.click(scrim)
+      expect(document.body.style.position).toBe('')
+    })
+
+    it('unlocks the page when a template is picked (which also closes the drawer)', async () => {
+      await openDrawer()
+      const cards = screen.getAllByRole('button', { name: 'Two Buttons' })
+      await userEvent.click(cards[0])
+      expect(document.body.style.position).toBe('')
+    })
+
+    it('makes the panel wide, leaving only a slim strip of the dark scrim visible beside it', async () => {
+      await openDrawer()
+      const panel = document.querySelector('.fixed.inset-0.z-30 .bg-background') as HTMLElement
+      expect(panel).toHaveClass('w-[calc(100vw-3rem)]')
+      expect(panel).not.toHaveClass('w-64')
+    })
+
+    it('sits above the canvas\'s floating + button (z-10), so that button never paints over the open drawer', async () => {
+      await openDrawer()
+      const overlay = document.querySelector('.fixed.inset-0.sm\\:hidden') as HTMLElement
+      // Any layer at or below the FAB's z-10 loses to it, since the FAB comes later in the page.
+      expect(overlay).toHaveClass('z-30')
+      expect(overlay).not.toHaveClass('z-10')
+    })
+
+    it('stops the scrim from scrolling the page underneath it', async () => {
+      await openDrawer()
+      expect(document.querySelector('.bg-black\\/50')).toHaveClass('touch-none')
+    })
+
+    it('closes itself, and unlocks the page, if the screen becomes wide enough for the desktop layout (e.g. rotating a phone)', async () => {
+      let onChange: ((e: { matches: boolean }) => void) | undefined
+      window.matchMedia = vi.fn(() => ({
+        matches: false,
+        addEventListener: (_: string, cb: (e: { matches: boolean }) => void) => (onChange = cb),
+        removeEventListener: vi.fn(),
+      })) as unknown as typeof window.matchMedia
+      const toggle = await openDrawer()
+      expect(toggle).toHaveAttribute('aria-expanded', 'true')
+
+      act(() => onChange?.({ matches: true }))
+
+      expect(toggle).toHaveAttribute('aria-expanded', 'false')
+      expect(document.body.style.position).toBe('')
+    })
+
+    it('stops listening for screen-size changes when the sidebar goes away', async () => {
+      const removeEventListener = vi.fn()
+      window.matchMedia = vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener })) as unknown as typeof window.matchMedia
+      const { unmount } = renderWithQuery(<TemplateSidebar selectedTemplateId={undefined} onSelectTemplate={vi.fn()} />)
+      unmount()
+      expect(removeEventListener).toHaveBeenCalled()
+    })
   })
 
   describe('preloading the full image', () => {

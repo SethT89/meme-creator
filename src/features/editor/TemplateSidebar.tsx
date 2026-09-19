@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 import { useTemplatesByUsage, useLogTemplateUsage } from '../../lib/queries/templates'
 import { searchTemplates } from '../../lib/templateSearch'
 import { prefetchImage } from '../../lib/prefetchImage'
+import { useScrollLock } from '../../lib/useScrollLock'
 import { TemplateSearchInput } from './TemplateSearchInput'
 
 export interface SelectedTemplate {
@@ -26,6 +27,20 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
   const logUsage = useLogTemplateUsage()
   const [query, setQuery] = useState('')
   const [drawerOpen, setDrawerOpen] = useState(false)
+  // The page must not scroll behind the open drawer.
+  useScrollLock(drawerOpen)
+  // The drawer only exists below the `sm` breakpoint (640px). If the screen grows
+  // past it while open (rotating a phone), the drawer disappears — close it too,
+  // or the page would stay frozen behind something that is no longer there.
+  useEffect(() => {
+    const wide = window.matchMedia?.('(min-width: 640px)')
+    if (!wide) return
+    const closeWhenWide = (e: { matches: boolean }) => {
+      if (e.matches) setDrawerOpen(false)
+    }
+    wide.addEventListener('change', closeWhenWide)
+    return () => wide.removeEventListener('change', closeWhenWide)
+  }, [])
   // `templates` arrives sorted by usage, and searchTemplates keeps that order
   // between equally good matches, so popular templates lead among ties.
   const visible = useMemo(() => searchTemplates(templates, query), [templates, query])
@@ -193,9 +208,15 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
         {drawerOpen ? '✕ Close Templates' : '☰ Templates'}
       </button>
       {drawerOpen && (
-        <div className="fixed inset-0 z-10 flex sm:hidden">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setDrawerOpen(false)} />
-          <div className="relative flex h-full w-64 flex-col bg-background p-3 shadow-lg">{listContent}</div>
+        // z-30: above the canvas's floating + button (z-10), which comes later in
+        // the page and would otherwise paint over the drawer. Below toasts and
+        // dialogs (z-50).
+        <div className="fixed inset-0 z-30 flex sm:hidden">
+          {/* touch-none: dragging on the dark strip must not scroll anything. */}
+          <div className="absolute inset-0 touch-none bg-black/50" onClick={() => setDrawerOpen(false)} />
+          {/* Nearly the full width, leaving just a slim strip of scrim to tap to
+              close — the old fixed 256px felt cramped on a 375px+ screen. */}
+          <div className="relative flex h-full w-[calc(100vw-3rem)] max-w-md flex-col bg-background p-3 shadow-lg">{listContent}</div>
         </div>
       )}
 
