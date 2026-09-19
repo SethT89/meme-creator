@@ -1,12 +1,5 @@
-import { getCropRect } from './layers'
-import type { ImageLayer, Layer, TextLayer } from './layers'
-
-// Matches this app's real on-screen CSS font stack (Tailwind's default
-// sans stack — confirmed live via getComputedStyle on an actual layer
-// box), not the generic 'sans-serif' keyword. Different fallback fonts
-// have different glyph metrics, which shifts both word-wrap points and
-// text width/positioning.
-const FONT_FAMILY = '-apple-system, "system-ui", "Segoe UI", Roboto, "Helvetica Neue", "Noto Sans", Arial, sans-serif'
+import { OUTLINE_WIDTH_EM, getCropRect, resolveTextStyle } from './layers'
+import type { ImageLayer, Layer, ResolvedTextStyle, TextLayer } from './layers'
 
 // Tailwind's Preflight sets line-height: 1.5 globally, and the on-screen
 // layer box never overrides it — confirmed live via getComputedStyle
@@ -15,7 +8,6 @@ const FONT_FAMILY = '-apple-system, "system-ui", "Segoe UI", Roboto, "Helvetica 
 // guess, so multi-line captions no longer drift further apart with each
 // line the way the earlier 1.2 estimate did.
 const LINE_HEIGHT_RATIO = 1.5
-const STROKE_RATIO = 0.24
 // The on-screen box has a fixed 4px (Tailwind's p-1) padding — unlike
 // font-size and position, this does NOT scale with the container-query
 // units that keep everything else WYSIWYG at any zoom level. Scaled by
@@ -63,23 +55,58 @@ export function wrapTextLines(ctx: TextMeasurer, text: string, maxWidth: number)
   return lines
 }
 
+// The canvas font shorthand for a resolved style — the same weight/size/
+// family the on-screen box uses, so glyph metrics (and so word-wrap points)
+// match. Also the string document.fonts.load() needs to know which face to fetch.
+export function textFontShorthand(style: ResolvedTextStyle, fontSize: number): string {
+  return `${style.fontWeight} ${fontSize}px ${style.fontFamily}`
+}
+
+// A canvas silently draws in the fallback font if a web font hasn't finished
+// loading yet (the browser only fetches a face once something renders in it,
+// and a picker preview or the on-screen box may not have). So before drawing,
+// explicitly load each distinct web font the text layers use. A failed load
+// must not block the export — the meme just comes out in the fallback font,
+// which beats an export button that does nothing on a flaky connection.
+async function ensureFontsLoaded(layers: Layer[]): Promise<void> {
+  if (typeof document === 'undefined' || !document.fonts) return
+  const textByFont = new Map<string, string>()
+  for (const layer of layers) {
+    if (layer.type !== 'text') continue
+    const style = resolveTextStyle(layer)
+    if (!style.fontId) continue // legacy system font: nothing to fetch
+    // Size is irrelevant to which face loads; a fixed one dedupes the layers.
+    const spec = textFontShorthand(style, 16)
+    textByFont.set(spec, (textByFont.get(spec) ?? '') + layer.label)
+  }
+  await Promise.all([...textByFont].map(([spec, text]) => document.fonts.load(spec, text || ' ').catch(() => [])))
+}
+
 // Stroke before fill, mirroring the CSS `paint-order: stroke fill` the
 // on-screen editor uses for its white-fill/black-outline meme-text look —
 // see EditorPage.tsx's layer box className. `scale` is the real-resolution-
 // to-displayed-size ratio (see renderCreationToBlob) — only the fixed CSS
 // padding needs it; everything else is already in real-pixel units.
 function drawLayer(ctx: CanvasRenderingContext2D, layer: TextLayer, scale: number) {
-  ctx.font = `bold ${layer.fontSize}px ${FONT_FAMILY}`
-  ctx.textAlign = 'center'
+  const style = resolveTextStyle(layer)
+  ctx.font = textFontShorthand(style, layer.fontSize)
+  ctx.textAlign = style.textAlign
   ctx.textBaseline = 'alphabetic'
-  ctx.lineWidth = layer.fontSize * STROKE_RATIO
-  ctx.strokeStyle = 'black'
-  ctx.fillStyle = 'white'
+  ctx.lineWidth = layer.fontSize * OUTLINE_WIDTH_EM
+  ctx.fillStyle = style.color
+  if (style.strokeColor) ctx.strokeStyle = style.strokeColor
 
   const padding = CSS_PADDING_PX * scale
   const lines = wrapTextLines(ctx, layer.label, layer.width - padding * 2)
   const lineHeight = layer.fontSize * LINE_HEIGHT_RATIO
-  const centerX = layer.x + layer.width / 2
+  // CSS text-align positions text relative to the box's padding edges, so
+  // left/right anchor at the padding, not the raw box edge.
+  const anchorX =
+    style.textAlign === 'left'
+      ? layer.x + padding
+      : style.textAlign === 'right'
+        ? layer.x + layer.width - padding
+        : layer.x + layer.width / 2
 
   lines.forEach((line, i) => {
     const lineTop = layer.y + padding + i * lineHeight
@@ -97,8 +124,8 @@ function drawLayer(ctx: CanvasRenderingContext2D, layer: TextLayer, scale: numbe
     const descent = metrics.fontBoundingBoxDescent ?? layer.fontSize * 0.2
     const halfLeading = Math.max(0, (lineHeight - (ascent + descent)) / 2)
     const baselineY = lineTop + halfLeading + ascent
-    ctx.strokeText(line, centerX, baselineY)
-    ctx.fillText(line, centerX, baselineY)
+    if (style.strokeColor) ctx.strokeText(line, anchorX, baselineY)
+    ctx.fillText(line, anchorX, baselineY)
   })
 }
 
@@ -174,6 +201,8 @@ export async function renderCreationToBlob(
 
   const ctx = canvas.getContext('2d')
   if (!ctx) throw new Error('Canvas 2D context is not available')
+
+  await ensureFontsLoaded(layers)
 
   if (type === 'image/jpeg') {
     ctx.fillStyle = 'white'

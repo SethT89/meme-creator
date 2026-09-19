@@ -1,6 +1,7 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { wrapTextLines, renderCreationToBlob } from './exportCanvas'
 import type { Layer } from './layers'
+import { SYSTEM_FONT_STACK } from './fonts'
 
 // A fixed 10px-per-character stub — real font metrics aren't available in
 // jsdom, and this keeps assertions simple and deterministic.
@@ -326,4 +327,128 @@ describe('renderCreationToBlob', () => {
     vi.restoreAllMocks()
   })
 
+})
+
+describe('renderCreationToBlob text styling', () => {
+  function styledContext() {
+    const calls: { method: string; args: unknown[] }[] = []
+    const ctx = {
+      drawImage: (...args: unknown[]) => calls.push({ method: 'drawImage', args }),
+      strokeText: (...args: unknown[]) => calls.push({ method: 'strokeText', args }),
+      fillText: (...args: unknown[]) => calls.push({ method: 'fillText', args }),
+      measureText: (text: string) => ({ width: text.length * 10, fontBoundingBoxAscent: 16, fontBoundingBoxDescent: 4 }),
+      font: '',
+      textAlign: '',
+      textBaseline: '',
+      lineWidth: 0,
+      strokeStyle: '',
+      fillStyle: '',
+    }
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx as unknown as CanvasRenderingContext2D)
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (this: HTMLCanvasElement, cb: BlobCallback) {
+      cb(new Blob(['fake'], { type: 'image/png' }))
+    })
+    return { ctx, calls }
+  }
+
+  // x=10, width=100, jsdom display width 0 → scale 1 → 4px padding:
+  // left anchor 14, center 60, right 106.
+  const layer = (over: Partial<Extract<Layer, { type: 'text' }>> = {}): Layer => ({
+    type: 'text',
+    id: 't1',
+    label: 'hi',
+    x: 10,
+    y: 20,
+    width: 100,
+    height: 50,
+    fontSize: 22,
+    heightAuto: true,
+    ...over,
+  })
+  const render = (layers: Layer[]) =>
+    renderCreationToBlob(document.createElement('div'), { image_width: 600, image_height: 908 }, layers)
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    Reflect.deleteProperty(document, 'fonts')
+  })
+
+  it('draws a layer with no style fields exactly as before: system bold, white fill, black outline, centered', async () => {
+    const { ctx, calls } = styledContext()
+    await render([layer()])
+
+    expect(ctx.font).toBe(`700 22px ${SYSTEM_FONT_STACK}`)
+    expect(ctx.fillStyle).toBe('#ffffff')
+    expect(ctx.strokeStyle).toBe('#000000')
+    expect(ctx.textAlign).toBe('center')
+    expect(calls.find((c) => c.method === 'fillText')?.args[1]).toBe(60)
+  })
+
+  it("uses the layer's font, fill color and outline color", async () => {
+    const { ctx, calls } = styledContext()
+    await render([layer({ fontFamily: 'anton', color: '#ff0000', strokeColor: '#00ff00' })])
+
+    expect(ctx.font).toBe(`400 22px "Anton", ${SYSTEM_FONT_STACK}`)
+    expect(ctx.fillStyle).toBe('#ff0000')
+    expect(ctx.strokeStyle).toBe('#00ff00')
+    expect(calls.some((c) => c.method === 'strokeText')).toBe(true)
+  })
+
+  it('skips the outline entirely when strokeColor is null', async () => {
+    const { calls } = styledContext()
+    await render([layer({ strokeColor: null })])
+
+    expect(calls.some((c) => c.method === 'strokeText')).toBe(false)
+    expect(calls.some((c) => c.method === 'fillText')).toBe(true)
+  })
+
+  it.each([
+    ['left', 14],
+    ['center', 60],
+    ['right', 106],
+  ] as const)('aligns %s by anchoring the text at x=%s', async (textAlign, anchorX) => {
+    const { ctx, calls } = styledContext()
+    await render([layer({ textAlign })])
+
+    expect(ctx.textAlign).toBe(textAlign)
+    expect(calls.find((c) => c.method === 'fillText')?.args[1]).toBe(anchorX)
+  })
+
+  it('waits for every web font used by a text layer to load before drawing anything', async () => {
+    const { calls } = styledContext()
+    let release!: () => void
+    const load = vi.fn(() => new Promise<FontFace[]>((resolve) => (release = () => resolve([]))))
+    Object.defineProperty(document, 'fonts', { value: { load }, configurable: true })
+
+    const pending = render([layer({ fontFamily: 'anton', label: 'hello' })])
+
+    expect(load).toHaveBeenCalledTimes(1)
+    expect(load).toHaveBeenCalledWith(expect.stringContaining('"Anton"'), 'hello')
+    expect(calls.some((c) => c.method === 'fillText')).toBe(false)
+
+    release()
+    await pending
+    expect(calls.some((c) => c.method === 'fillText')).toBe(true)
+  })
+
+  it('loads each distinct font once, and skips legacy layers that use no web font', async () => {
+    styledContext()
+    const load = vi.fn(() => Promise.resolve([] as FontFace[]))
+    Object.defineProperty(document, 'fonts', { value: { load }, configurable: true })
+
+    await render([layer({ id: 'a', fontFamily: 'bangers' }), layer({ id: 'b', fontFamily: 'bangers' }), layer({ id: 'c' })])
+
+    expect(load).toHaveBeenCalledTimes(1)
+    expect(load).toHaveBeenCalledWith(expect.stringContaining('"Bangers"'), expect.any(String))
+  })
+
+  it('still exports (in the fallback font) if a font fails to load', async () => {
+    const { calls } = styledContext()
+    const load = vi.fn(() => Promise.reject(new Error('network')))
+    Object.defineProperty(document, 'fonts', { value: { load }, configurable: true })
+
+    await render([layer({ fontFamily: 'anton' })])
+
+    expect(calls.some((c) => c.method === 'fillText')).toBe(true)
+  })
 })
