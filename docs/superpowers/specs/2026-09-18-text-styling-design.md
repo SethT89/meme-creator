@@ -109,7 +109,7 @@ replaced by the real controls.
 - Only one popover is open at a time (a single `openMenu` state replaces the
   separate `panelOpen` / `layeringOpen` booleans), and opening one closes
   the others.
-- New callbacks mirror `onChangeFontSize`: `onChangeStyle(patch)` taking a
+- New callbacks mirror `onChangeFontSize`: `onChangeTextStyle(patch)` taking a
   `Partial<Pick<TextLayer, 'fontFamily' | 'color' | 'strokeColor' | 'textAlign'>>`,
   handled in `EditorPage` by one generic `handleChangeTextStyle(layerId,
   patch)` next to `handleChangeFontSize`.
