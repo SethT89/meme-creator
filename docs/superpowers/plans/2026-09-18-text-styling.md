@@ -25,7 +25,7 @@
 |---|---|---|
 | `package.json` / `package-lock.json` | modify | add 8 `@fontsource/*` deps |
 | `src/lib/fonts.ts` | create | font registry (`FONT_OPTIONS`, `FontId`), system fallback stack, `getFontOption`, `fontFamilyCss` |
-| `src/lib/fonts.test.ts` | create | registry sanity + guard that every font's CSS file exists and is imported |
+| `src/lib/fonts.test.ts` | create | registry sanity + guard that every font's stylesheet is imported in `src/fonts.ts` |
 | `src/fonts.ts` | create | side-effect imports of the 8 `latin-<weight>.css` files |
 | `src/main.tsx` | modify | `import './fonts'` |
 | `src/lib/palette.ts` | create | the swatch grid (`SWATCH_ROWS`) |
@@ -73,8 +73,7 @@ Create `src/lib/fonts.test.ts`:
 
 ```ts
 import { describe, it, expect } from 'vitest'
-import { existsSync, readFileSync } from 'node:fs'
-import path from 'node:path'
+import fontImports from '../fonts.ts?raw'
 import { DEFAULT_FONT_ID, FONT_OPTIONS, SYSTEM_FONT_STACK, fontFamilyCss, getFontOption } from './fonts'
 
 describe('font registry', () => {
@@ -110,14 +109,13 @@ describe('font registry', () => {
   })
 
   // Guards the wiring, not just the data: a font that is in the registry but
-  // whose CSS was never imported would silently render in the fallback font.
+  // whose stylesheet was never imported would silently render in the fallback
+  // font. (A stylesheet that doesn't exist can't slip through — the import in
+  // src/fonts.ts would fail the build.)
   it.each(FONT_OPTIONS.map((f) => [f.id, f.weight] as const))(
-    'ships and imports the latin-%s stylesheet for weight %s',
+    'imports the latin-%s stylesheet for weight %s in src/fonts.ts',
     (id, weight) => {
-      const file = `@fontsource/${id}/latin-${weight}.css`
-      expect(existsSync(path.resolve(import.meta.dirname, '../../node_modules', file))).toBe(true)
-      const imports = readFileSync(path.resolve(import.meta.dirname, '../fonts.ts'), 'utf8')
-      expect(imports).toContain(`import '${file}'`)
+      expect(fontImports).toContain(`import '@fontsource/${id}/latin-${weight}.css'`)
     },
   )
 })
