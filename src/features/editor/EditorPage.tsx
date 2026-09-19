@@ -1044,7 +1044,9 @@ export function EditorPage() {
   }
 
   return (
-    <div className="flex h-full gap-6">
+    // Stacked on a phone: the template toggle sits ABOVE the canvas instead of beside
+    // it (side by side, the toggle's column took width and squeezed the canvas).
+    <div className="flex h-full flex-col gap-3 sm:flex-row sm:gap-6">
       <TemplateSidebar selectedTemplateId={source?.type === 'template' ? source.templateId : undefined} onSelectTemplate={handleSelectTemplate} />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -1112,7 +1114,7 @@ export function EditorPage() {
             // (and on a canvas wider than the space, the whole left side) was
             // cut off and could not be grabbed. The width/height budgets in the
             // canvas box's className below are reduced by exactly these margins.
-            className="relative m-2 inline-block rounded-lg bg-[repeating-conic-gradient(#00000010_0%_25%,transparent_0%_50%)] bg-[length:20px_20px] sm:mr-12 sm:mb-4"
+            className="relative m-2 mb-16 inline-block rounded-lg bg-[repeating-conic-gradient(#00000010_0%_25%,transparent_0%_50%)] bg-[length:20px_20px] sm:mr-12 sm:mb-4"
           >
             {/* Same fill-available-height approach as the template <img>
                 below (viewport-relative height + aspect-square instead of a
@@ -1137,7 +1139,7 @@ export function EditorPage() {
                 `100vw - constant` — across multiple widths), each rounded
                 up slightly to a clean rem value for a small safety margin. */}
             {source === null && (
-              <div className="aspect-square h-[65vh] max-w-[calc(100vw-14rem)] sm:h-[calc(100vh-19rem)] sm:max-w-[calc(100vw-24rem)] sm:min-h-[240px]" />
+              <div className="aspect-square w-[calc(100vw-3.75rem)] sm:h-[calc(100vh-19rem)] sm:w-auto sm:max-w-[calc(100vw-24rem)] sm:min-h-[240px]" />
             )}
             {source !== null && activeCanvas && (
               // One canvas box for both kinds of canvas — a plain <div>, sized to FIT
@@ -1179,7 +1181,7 @@ export function EditorPage() {
                   // The exact ratio, for the width formula in className below.
                   '--canvas-ratio': activeCanvas.width / activeCanvas.height,
                 } as CSSProperties}
-                className="relative block w-[min(calc(100vw-15rem),calc(65vh*var(--canvas-ratio)))] overflow-hidden sm:w-[min(calc(100vw-27.5rem),calc((100vh-19.5rem)*var(--canvas-ratio)))]"
+                className="relative block w-[min(calc(100vw-3.75rem),calc(65vh*var(--canvas-ratio)))] overflow-hidden sm:w-[min(calc(100vw-27.5rem),calc((100vh-19.5rem)*var(--canvas-ratio)))]"
               >
                 {source.type === 'template' && templateBackground && (
                   <img

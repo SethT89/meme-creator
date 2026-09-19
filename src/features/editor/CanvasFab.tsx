@@ -53,12 +53,13 @@ export function CanvasFab({ onAddText, onAddImage, uploadingImage = false }: Can
 
   return (
     <div
-      // Mobile (default): overlays the image's bottom-right corner directly
-      // — there isn't reliably room to float outside the image on a narrow
-      // viewport. Desktop (sm+): sits just outside the image wrapper's own
-      // bottom-right corner, in the checkerboard working-area space, never
-      // over the artwork.
-      className="absolute bottom-4 right-4 z-10 flex flex-col items-end gap-2.5 sm:-bottom-4 sm:-right-12"
+      // Mobile (default): sits just BELOW the image's bottom-right corner, in
+      // the room the wrapper reserves for it (mb-16 in EditorPage) — there's
+      // no room beside the image on a narrow screen, and overlaying it covered
+      // the artwork. Its expanded menu opens upward over the image, only while
+      // open. Desktop (sm+): sits just outside the wrapper's bottom-right
+      // corner, in the checkerboard working-area space, never over the artwork.
+      className="absolute -bottom-14 right-0 z-10 flex flex-col items-end gap-2.5 sm:-bottom-4 sm:-right-12"
       onClick={(e) => e.stopPropagation()}
     >
       {open &&
