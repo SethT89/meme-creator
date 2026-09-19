@@ -22,6 +22,30 @@ describe('ColorPicker', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
 
+  it("shows the outline color as a ring around the fill color on the button's swatch", () => {
+    render(<ColorPicker color="#000000" strokeColor="#00ff00" open={false} onToggle={() => {}} onChange={() => {}} />)
+    const swatch = screen.getByRole('button', { name: 'Text color' }).querySelector('span')!
+    expect(swatch.style.backgroundColor).toBe('rgb(0, 0, 0)') // the fill: the disc in the middle
+    expect(swatch.style.borderColor).toBe('rgb(0, 255, 0)') // the outline: the ring around it
+    expect(swatch.className).toContain('border-[3px]')
+  })
+
+  it('shows just the fill, with no ring, when the outline is off', () => {
+    render(<ColorPicker color="#ff0000" strokeColor={null} open={false} onToggle={() => {}} onChange={() => {}} />)
+    const swatch = screen.getByRole('button', { name: 'Text color' }).querySelector('span')!
+    expect(swatch.style.backgroundColor).toBe('rgb(255, 0, 0)')
+    expect(swatch.style.borderColor).toBe('')
+    expect(swatch.className).not.toContain('border-[3px]')
+  })
+
+  it('updates the swatch as the fill and outline props change', () => {
+    const { rerender } = render(<ColorPicker color="#ffffff" strokeColor="#000000" open={false} onToggle={() => {}} onChange={() => {}} />)
+    rerender(<ColorPicker color="#0000ff" strokeColor="#ffff00" open={false} onToggle={() => {}} onChange={() => {}} />)
+    const swatch = screen.getByRole('button', { name: 'Text color' }).querySelector('span')!
+    expect(swatch.style.backgroundColor).toBe('rgb(0, 0, 255)')
+    expect(swatch.style.borderColor).toBe('rgb(255, 255, 0)')
+  })
+
   it('calls onToggle when the button is clicked', async () => {
     const onToggle = vi.fn()
     render(<ColorPicker color="#ffffff" strokeColor="#000000" open={false} onToggle={onToggle} onChange={() => {}} />)

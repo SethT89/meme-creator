@@ -101,7 +101,8 @@ replaced by the real controls.
   for their previews. *(Revised after review: the first design showed the
   current name in its own typeface on the button, which resized the bar.)*
 - **Size** is unchanged.
-- **Color button** is a round swatch of the current fill (like FigJam's).
+- **Color button** is a round swatch showing both colors: the fill is the disc,
+  the outline is a ring around it (no ring when the outline is off).
   Its popover has two tabs, **Fill** and **Outline**. Both show the same
   swatch grid: two rows of 10 hues/tints plus white, and a rainbow "custom"
   swatch backed by a native `<input type="color">` for arbitrary colors. The

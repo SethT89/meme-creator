@@ -35,7 +35,14 @@ export function ColorPicker({ color, strokeColor, open, onToggle, onChange }: Co
         className="flex items-center rounded-full px-2 py-1.5"
         onClick={onToggle}
       >
-        <span aria-hidden="true" className="block h-4 w-4 rounded-full border border-neutral-500" style={{ backgroundColor: color }} />
+        {/* Shows both colors at a glance: the fill is the disc, the outline is
+            the ring around it (no ring when the outline is off). The faint outer
+            ring keeps a dark outline visible against the dark toolbar. */}
+        <span
+          aria-hidden="true"
+          className={`block h-5 w-5 rounded-full ring-1 ring-neutral-600 ${strokeColor ? 'border-[3px] border-solid' : ''}`}
+          style={{ backgroundColor: color, ...(strokeColor ? { borderColor: strokeColor } : {}) }}
+        />
       </button>
       {open && (
         <div role="dialog" aria-label="Text color" className="absolute bottom-full left-1/2 mb-2 w-max -translate-x-1/2 rounded-xl bg-neutral-900 p-3 shadow-lg">
