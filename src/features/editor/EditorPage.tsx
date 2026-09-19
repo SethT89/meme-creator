@@ -66,6 +66,10 @@ type Source =
       backgroundY?: number
     }
   | null
+// Two taps on the same caption within this long, and this close together, are a
+// double-tap (see handleTextPointerUp).
+const DOUBLE_TAP_MS = 350
+const DOUBLE_TAP_SLOP = 24
 type SavedMeta = { id: string; name: string; tags: string[] } | null
 type CanvasData = { layers?: Layer[]; canvasWidth?: number; canvasHeight?: number; backgroundX?: number; backgroundY?: number }
 
@@ -190,6 +194,8 @@ export function EditorPage() {
   const imgRef = useRef<HTMLElement>(null)
   // The template image inside the canvas box (drawn under every layer).
   const bgImgRef = useRef<HTMLImageElement>(null)
+  // The previous tap on a text box, for double-tap detection (touch has no dblclick).
+  const lastTap = useRef<{ id: string; time: number; x: number; y: number } | null>(null)
   // Set once a canvas resize actually changes something, so switching templates
   // afterwards asks before throwing the adjustment away, even with no layer
   // edits. Reset wherever the baseline layers are reset.
@@ -538,12 +544,47 @@ export function EditorPage() {
     e.currentTarget.setPointerCapture?.(e.pointerId)
   }
 
-  function handleDoubleClick(e: ReactMouseEvent<HTMLDivElement>, layer: TextLayer) {
-    e.stopPropagation()
+  function beginEditing(layer: TextLayer) {
     setSelectedFieldId(layer.id)
     editStartLabel.current = layer.label
     needsEditFocus.current = true
     setEditingLayerId(layer.id)
+  }
+
+  function handleDoubleClick(e: ReactMouseEvent<HTMLDivElement>, layer: TextLayer) {
+    e.stopPropagation()
+    beginEditing(layer)
+  }
+
+  // A phone has no double-click, and iOS doesn't reliably synthesize one for
+  // these touch-none, pointer-captured boxes — so on touch/pen, two quick taps
+  // on the same caption enter edit mode themselves. (A mouse keeps the real
+  // dblclick above.) Both taps must land within DOUBLE_TAP_MS and
+  // DOUBLE_TAP_SLOP px of each other, and a drag doesn't count as a tap.
+  function handleTextPointerUp(e: ReactPointerEvent<HTMLDivElement>, layer: TextLayer) {
+    const drag = dragState.current
+    dragState.current = null
+    if (e.pointerType === 'mouse') return
+    // Already editing: a tap places the text cursor. Re-running "enter edit
+    // mode" would select all the text again under the user's finger.
+    if (editingLayerId === layer.id) return
+    if (drag?.moved) {
+      lastTap.current = null
+      return
+    }
+    const now = Date.now()
+    const previous = lastTap.current
+    if (
+      previous &&
+      previous.id === layer.id &&
+      now - previous.time <= DOUBLE_TAP_MS &&
+      Math.hypot(e.clientX - previous.x, e.clientY - previous.y) <= DOUBLE_TAP_SLOP
+    ) {
+      lastTap.current = null
+      beginEditing(layer)
+    } else {
+      lastTap.current = { id: layer.id, time: now, x: e.clientX, y: e.clientY }
+    }
   }
 
   // CanvasFab's Add Text action. A no-op until there's a real canvas to
@@ -1422,7 +1463,7 @@ export function EditorPage() {
                           }
                           onPointerDown={(e) => handlePointerDown(e, layer)}
                           onPointerMove={handlePointerMove}
-                          onPointerUp={handlePointerUp}
+                          onPointerUp={(e) => handleTextPointerUp(e, layer)}
                           onClick={(e) => e.stopPropagation()}
                           onDoubleClick={(e) => handleDoubleClick(e, layer)}
                           onInput={(e) => handleLabelInput(layer.id, e.currentTarget.textContent ?? '')}

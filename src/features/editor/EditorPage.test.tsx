@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, within, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
@@ -614,6 +614,100 @@ describe('EditorPage', () => {
 
     await userEvent.click(screen.getByRole('img', { name: 'Two Buttons' }))
     expect(document.querySelectorAll(handleSelector)).toHaveLength(0)
+  })
+
+  describe('double-tap to edit (touch)', () => {
+    // A phone has no double-click, and iOS doesn't reliably synthesize one for
+    // these touch-none boxes, so two quick taps must enter edit mode themselves.
+    const tap = (text: string, x = 100, y = 100) => {
+      const box = screen.getByText(text)
+      fireEvent.pointerDown(box, { pointerType: 'touch', pointerId: 1, clientX: x, clientY: y })
+      fireEvent.pointerUp(box, { pointerType: 'touch', pointerId: 1, clientX: x, clientY: y })
+    }
+    const isEditing = (text: string) => screen.getByText(text).getAttribute('contenteditable') === 'true'
+
+    async function openTwoButtons() {
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+      await screen.findByText('Caption 1')
+    }
+
+    afterEach(() => vi.useRealTimers())
+
+    it('enters edit mode on two quick taps of the same caption', async () => {
+      await openTwoButtons()
+      tap('Caption 1')
+      expect(isEditing('Caption 1')).toBe(false) // one tap only selects
+      tap('Caption 1')
+      expect(isEditing('Caption 1')).toBe(true)
+    })
+
+    it('works for a pen too, not only a finger', async () => {
+      await openTwoButtons()
+      const box = screen.getByText('Caption 1')
+      for (let i = 0; i < 2; i++) {
+        fireEvent.pointerDown(box, { pointerType: 'pen', pointerId: 2, clientX: 50, clientY: 50 })
+        fireEvent.pointerUp(box, { pointerType: 'pen', pointerId: 2, clientX: 50, clientY: 50 })
+      }
+      expect(isEditing('Caption 1')).toBe(true)
+    })
+
+    it('does not treat two slow taps as a double-tap', async () => {
+      await openTwoButtons()
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date('2026-01-01T00:00:00Z'))
+      tap('Caption 1')
+      vi.setSystemTime(new Date('2026-01-01T00:00:01Z')) // a full second later
+      tap('Caption 1')
+      expect(isEditing('Caption 1')).toBe(false)
+    })
+
+    it('does not treat taps on two different captions as a double-tap', async () => {
+      await openTwoButtons()
+      tap('Caption 1')
+      tap('Caption 2')
+      expect(isEditing('Caption 1')).toBe(false)
+      expect(isEditing('Caption 2')).toBe(false)
+    })
+
+    it('does not treat taps in clearly different spots as a double-tap', async () => {
+      await openTwoButtons()
+      tap('Caption 1', 100, 100)
+      tap('Caption 1', 220, 100)
+      expect(isEditing('Caption 1')).toBe(false)
+    })
+
+    it('does not count a drag as a tap', async () => {
+      await openTwoButtons()
+      const box = screen.getByText('Caption 1')
+      fireEvent.pointerDown(box, { pointerType: 'touch', pointerId: 1, clientX: 100, clientY: 100 })
+      fireEvent.pointerMove(box, { pointerType: 'touch', pointerId: 1, clientX: 160, clientY: 100 })
+      fireEvent.pointerUp(box, { pointerType: 'touch', pointerId: 1, clientX: 160, clientY: 100 })
+      tap('Caption 1', 160, 100)
+      expect(isEditing('Caption 1')).toBe(false)
+    })
+
+    it('leaves mouse users to the real double-click (two quick mouse clicks do not double-fire it)', async () => {
+      await openTwoButtons()
+      const box = screen.getByText('Caption 1')
+      for (let i = 0; i < 2; i++) {
+        fireEvent.pointerDown(box, { pointerType: 'mouse', pointerId: 1, clientX: 100, clientY: 100 })
+        fireEvent.pointerUp(box, { pointerType: 'mouse', pointerId: 1, clientX: 100, clientY: 100 })
+      }
+      expect(isEditing('Caption 1')).toBe(false)
+    })
+
+    it('a third quick tap after entering edit mode does not restart the edit', async () => {
+      await openTwoButtons()
+      tap('Caption 1')
+      tap('Caption 1')
+      expect(isEditing('Caption 1')).toBe(true)
+      // Tapping inside a box being edited places the text cursor; it must not
+      // re-run "enter edit mode", which would select all the text again.
+      tap('Caption 1')
+      tap('Caption 1')
+      expect(isEditing('Caption 1')).toBe(true)
+    })
   })
 
   it('double-clicking a box enters edit mode (contentEditable)', async () => {
