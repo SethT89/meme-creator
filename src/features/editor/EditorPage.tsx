@@ -1356,7 +1356,7 @@ export function EditorPage() {
                             RESIZE_HANDLES.map((handle) => (
                               <div
                                 key={handle.key}
-                                className="absolute z-10 h-2.5 w-2.5 touch-none border border-blue-500 bg-white"
+                                className="absolute z-10 h-2.5 w-2.5 touch-none pointer-coarse:h-4 pointer-coarse:w-4 pointer-coarse:before:absolute pointer-coarse:before:-inset-3 border border-blue-500 bg-white"
                                 style={{ top: handle.top, left: handle.left, transform: 'translate(-50%, -50%)', cursor: handle.cursor }}
                                 onPointerDown={(e) => handleCropResizePointerDown(e, layer, handle.xSign, handle.ySign)}
                                 onPointerMove={handleCropResizePointerMove}
@@ -1369,7 +1369,7 @@ export function EditorPage() {
                             CORNER_RESIZE_HANDLES.map((handle) => (
                               <div
                                 key={handle.key}
-                                className="absolute h-2.5 w-2.5 touch-none border border-blue-500 bg-white"
+                                className="absolute h-2.5 w-2.5 touch-none pointer-coarse:h-4 pointer-coarse:w-4 pointer-coarse:before:absolute pointer-coarse:before:-inset-3 border border-blue-500 bg-white"
                                 style={{ top: handle.top, left: handle.left, transform: 'translate(-50%, -50%)', cursor: handle.cursor }}
                                 onPointerDown={(e) => handleResizePointerDown(e, layer, handle.xSign, handle.ySign)}
                                 onPointerMove={handleResizePointerMove}
@@ -1482,7 +1482,7 @@ export function EditorPage() {
                             RESIZE_HANDLES.map((handle) => (
                               <div
                                 key={handle.key}
-                                className="absolute h-2.5 w-2.5 touch-none border border-blue-500 bg-white"
+                                className="absolute h-2.5 w-2.5 touch-none pointer-coarse:h-4 pointer-coarse:w-4 pointer-coarse:before:absolute pointer-coarse:before:-inset-3 border border-blue-500 bg-white"
                                 style={{ top: handle.top, left: handle.left, transform: 'translate(-50%, -50%)', cursor: handle.cursor }}
                                 onPointerDown={(e) => handleResizePointerDown(e, layer, handle.xSign, handle.ySign)}
                                 onPointerMove={handleResizePointerMove}
@@ -1542,7 +1542,7 @@ export function EditorPage() {
                   <div
                     key={handle.key}
                     data-canvas-handle={handle.key}
-                    className="absolute z-10 h-2.5 w-2.5 touch-none border border-neutral-500 bg-white"
+                    className="absolute z-10 h-2.5 w-2.5 touch-none pointer-coarse:h-4 pointer-coarse:w-4 pointer-coarse:before:absolute pointer-coarse:before:-inset-3 border border-neutral-500 bg-white"
                     style={{ top: handle.top, left: handle.left, transform: 'translate(-50%, -50%)', cursor: handle.cursor }}
                     onPointerDown={(e) => handleCanvasResizePointerDown(e, handle.xSign, handle.ySign)}
                     onPointerMove={handleCanvasResizePointerMove}

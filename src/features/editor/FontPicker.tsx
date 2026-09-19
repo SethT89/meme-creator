@@ -40,7 +40,7 @@ export function FontPicker({ fontId, open, onToggle, onChange }: FontPickerProps
         title={label}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex items-center gap-1 rounded-full px-2 py-1 text-base"
+        className="flex items-center gap-1 rounded-full px-2 py-1 text-base pointer-coarse:py-2"
         onClick={onToggle}
       >
         Aa
@@ -57,7 +57,7 @@ export function FontPicker({ fontId, open, onToggle, onChange }: FontPickerProps
               // Each name in its own typeface. The check column is always
               // reserved so the names line up whether or not one is checked.
               style={{ fontFamily: fontFamilyCss(font), fontWeight: font.weight }}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-base hover:bg-neutral-700"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-base hover:bg-neutral-700 pointer-coarse:py-2.5"
               onClick={() => onChange(font.id)}
             >
               <span className="flex w-4 shrink-0 justify-center">{font.id === fontId && <Check />}</span>

@@ -37,7 +37,7 @@ export function AlignPicker({ value, open, onToggle, onChange }: AlignPickerProp
         aria-label="Text alignment"
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex items-center rounded-full px-2 py-1.5"
+        className="flex items-center rounded-full px-2 py-1.5 pointer-coarse:px-3 pointer-coarse:py-3.5"
         onClick={onToggle}
       >
         <AlignIcon align={value} />
@@ -50,7 +50,7 @@ export function AlignPicker({ value, open, onToggle, onChange }: AlignPickerProp
               type="button"
               role="menuitemradio"
               aria-checked={option.value === value}
-              className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-neutral-700 ${
+              className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-neutral-700 pointer-coarse:py-2.5 ${
                 option.value === value ? 'bg-neutral-800' : ''
               }`}
               onClick={() => onChange(option.value)}

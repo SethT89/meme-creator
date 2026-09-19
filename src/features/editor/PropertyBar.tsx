@@ -83,7 +83,7 @@ export function PropertyBar({
           {DIVIDER}
 
           <div className="relative">
-            <button type="button" className="rounded-full px-2 py-1 text-xs" onClick={() => toggleMenu('size')}>
+            <button type="button" className="rounded-full px-2 py-1 text-xs pointer-coarse:py-2.5" onClick={() => toggleMenu('size')}>
               Size: {sizeLabel(fontSize)}
             </button>
             {openMenu === 'size' && (
@@ -91,7 +91,7 @@ export function PropertyBar({
                 {SIZE_PRESETS.map((preset) => (
                   <div
                     key={preset.label}
-                    className="cursor-pointer rounded-md px-2 py-1.5 text-sm hover:bg-neutral-700"
+                    className="cursor-pointer rounded-md px-2 py-1.5 text-sm hover:bg-neutral-700 pointer-coarse:py-2.5"
                     onClick={() => {
                       onChangeFontSize(preset.px)
                       setOpenMenu(null)
@@ -109,7 +109,7 @@ export function PropertyBar({
                     aria-label="Custom font size"
                     type="number"
                     defaultValue={fontSize}
-                    className="w-full rounded-md bg-neutral-800 px-2 py-1 text-sm text-white"
+                    className="w-full rounded-md bg-neutral-800 px-2 py-1 text-base text-white sm:text-sm"
                     // The on-canvas preview should track every keystroke, not
                     // just the final committed value — onBlur/Enter below are
                     // now just redundant convenience (harmless to keep; Enter
@@ -151,7 +151,7 @@ export function PropertyBar({
 
       {onCrop && (
         <>
-          <button type="button" className="rounded-full px-2 py-1 text-xs" onClick={onCrop}>
+          <button type="button" className="rounded-full px-2 py-1 text-xs pointer-coarse:py-2.5" onClick={onCrop}>
             Crop
           </button>
           {DIVIDER}
@@ -161,7 +161,7 @@ export function PropertyBar({
       <div className="relative">
         <button
           type="button"
-          className="rounded-full px-2 py-1 text-xs"
+          className="rounded-full px-2 py-1 text-xs pointer-coarse:py-2.5"
           aria-haspopup="menu"
           aria-expanded={openMenu === 'layering'}
           onClick={() => toggleMenu('layering')}
@@ -176,7 +176,7 @@ export function PropertyBar({
                 type="button"
                 role="menuitem"
                 disabled={!(option.needs === 'forward' ? canMoveForward : canMoveBackward)}
-                className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-neutral-700 disabled:cursor-default disabled:text-neutral-500 disabled:hover:bg-transparent"
+                className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-neutral-700 pointer-coarse:py-2.5 disabled:cursor-default disabled:text-neutral-500 disabled:hover:bg-transparent"
                 onClick={() => {
                   onReorder(option.action)
                   setOpenMenu(null)
@@ -192,7 +192,7 @@ export function PropertyBar({
         )}
       </div>
       {DIVIDER}
-      <button type="button" className="rounded-full px-2 py-1 text-xs text-red-400" onClick={onDelete}>
+      <button type="button" className="rounded-full px-2 py-1 text-xs text-red-400 pointer-coarse:py-2.5" onClick={onDelete}>
         Delete
       </button>
     </div>
