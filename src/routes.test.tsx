@@ -50,8 +50,8 @@ describe('routes', () => {
   it('renders the editor (blank canvas) at /', () => {
     renderAt('/')
     // No page heading on the editor (removed — redundant with the page
-    // itself) — "Search All Memes" is unique to this route, unlike Gallery.
-    expect(screen.getByRole('button', { name: 'Search All Memes' })).toBeInTheDocument()
+    // itself) — the template search box is unique to this route, unlike Gallery.
+    expect(screen.getByRole('searchbox', { name: 'Search memes' })).toBeInTheDocument()
   })
 
   it('renders the gallery page at /gallery', () => {
@@ -61,12 +61,12 @@ describe('routes', () => {
 
   it('the header toggle actually navigates between Create and My Saves', async () => {
     renderAt('/')
-    expect(screen.getByRole('button', { name: 'Search All Memes' })).toBeInTheDocument()
+    expect(screen.getByRole('searchbox', { name: 'Search memes' })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'My Saves' }))
     expect(await screen.findByRole('heading', { name: 'My Creations' })).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: 'Create' }))
-    expect(await screen.findByRole('button', { name: 'Search All Memes' })).toBeInTheDocument()
+    expect(await screen.findByRole('searchbox', { name: 'Search memes' })).toBeInTheDocument()
   })
 })

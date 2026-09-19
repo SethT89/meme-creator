@@ -64,9 +64,11 @@ searchTemplates<T extends { name: string; tags?: string[] | null; description?: 
 - Picking a template (click or Enter) leaves the query as typed — the chosen
   card stays visible and highlighted, and the ✕ is one click away.
 - **Empty state**: when a non-empty query matches nothing, the list shows
-  `No memes match "xyz".` with a "Clear search" button.
-- **Screen readers**: a visually hidden `role="status"` line announces the
-  result count as it changes ("3 memes", "1 meme", "No memes match").
+  `No memes match "xyz".` with a "Show all memes" button (not "Clear search",
+  which the box's ✕ already uses).
+- **Screen readers**: a visually hidden `aria-live="polite"` line announces the
+  result count as it changes ("3 memes", "1 meme", "No memes match"). Not
+  `role="status"`: the app's toasts use that role and are located by it.
 - **Mobile**: the box is the first thing in the drawer's list (same
   `listContent`), and picking still closes the drawer. The query state is
   shared with the desktop column.

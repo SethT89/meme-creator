@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
+import type { KeyboardEvent } from 'react'
 import { useTemplatesByUsage, useLogTemplateUsage } from '../../lib/queries/templates'
-import { SearchTemplatesModal } from './SearchTemplatesModal'
+import { searchTemplates } from '../../lib/templateSearch'
+import { TemplateSearchInput } from './TemplateSearchInput'
 
 export interface SelectedTemplate {
   id: string
@@ -18,8 +20,13 @@ export interface TemplateSidebarProps {
 export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: TemplateSidebarProps) {
   const { data: templates = [] } = useTemplatesByUsage()
   const logUsage = useLogTemplateUsage()
-  const [searchOpen, setSearchOpen] = useState(false)
+  const [query, setQuery] = useState('')
   const [drawerOpen, setDrawerOpen] = useState(false)
+  // `templates` arrives sorted by usage, and searchTemplates keeps that order
+  // between equally good matches, so popular templates lead among ties.
+  const visible = useMemo(() => searchTemplates(templates, query), [templates, query])
+  const searching = query.trim() !== ''
+  const status = !searching ? '' : visible.length === 0 ? 'No memes match' : `${visible.length} ${visible.length === 1 ? 'meme' : 'memes'}`
 
   function pick(t: { id: string; name: string; blank_image_url: string; image_width: number; image_height: number }) {
     logUsage.mutate(t.id)
@@ -27,15 +34,35 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
     setDrawerOpen(false)
   }
 
+  function focusCard(card: HTMLElement | null | undefined) {
+    card?.focus()
+  }
+
+  // Arrow keys walk the result cards; ArrowUp from the first one goes back to
+  // the search box (the box is the list's previous sibling).
+  function handleListKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
+    const cards = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('[data-template-card]'))
+    const current = cards.indexOf(document.activeElement as HTMLElement)
+    if (current === -1) return
+    e.preventDefault()
+    if (e.key === 'ArrowDown') focusCard(cards[Math.min(current + 1, cards.length - 1)])
+    else if (current === 0) e.currentTarget.previousElementSibling?.querySelector('input')?.focus()
+    else focusCard(cards[current - 1])
+  }
+
   const listContent = (
     <>
-      <button
-        type="button"
-        onClick={() => setSearchOpen(true)}
-        className="mb-2 w-full shrink-0 rounded-md border border-border p-2 text-sm font-medium hover:bg-muted"
-      >
-        Search All Memes
-      </button>
+      <TemplateSearchInput
+        value={query}
+        onChange={setQuery}
+        onSubmit={() => {
+          // Enter picks the top result — but only for a real query, so a stray
+          // Enter in an empty box doesn't silently load the most-used template.
+          if (searching && visible[0]) pick(visible[0])
+        }}
+        onArrowDown={(input) => focusCard(input.parentElement?.nextElementSibling?.querySelector<HTMLElement>('[data-template-card]'))}
+      />
 
       {/* pr-3 leaves a gutter to the right of the cards for the scrollbar to
           live in — the cards are w-full, so without it a scrollbar (overlay
@@ -55,18 +82,34 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
           only this panel needs to scroll independently — the page growing
           for other tall content is otherwise still fine). 238px = the
           fixed chrome above and below this list (header + padding + the
-          Search button + margins), measured live; same "wrong shape of
+          search box + margins), measured live; same "wrong shape of
           formula" trap as CanvasFab's image sizing applies here too if this
           ever needs adjusting — it must scale at 1x viewport height minus a
           constant, not some fraction of vh. Cards themselves are never
           resized to fit more in view — this scrolls instead, at a fixed
           card size. Not applied below sm: the mobile drawer is a fixed
           h-full overlay already, not subject to this. */}
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-3 sm:max-h-[calc(100vh-238px)]">
-        {templates.map((t) => (
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-3 sm:max-h-[calc(100vh-238px)]" onKeyDown={handleListKeyDown}>
+        {/* Always rendered (a live region has to exist before its text changes
+            to be announced). Out of flow, so it doesn't disturb the list.
+            aria-live rather than role="status": the app's toasts already use
+            role="status", and screens/tests locate them by it. */}
+        <p aria-live="polite" data-search-status className="sr-only">
+          {status}
+        </p>
+        {searching && visible.length === 0 && (
+          <div className="px-1 py-2 text-sm text-muted-foreground">
+            <p>No memes match "{query.trim()}".</p>
+            <button type="button" onClick={() => setQuery('')} className="mt-1 underline hover:text-foreground">
+              Show all memes
+            </button>
+          </div>
+        )}
+        {visible.map((t) => (
           <button
             key={t.id}
             type="button"
+            data-template-card
             onClick={() => pick(t)}
             // Selected is its own persistent indicator (blue border), kept
             // deliberately separate from hover/active — those two use a
@@ -127,15 +170,6 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
       )}
 
       <div className="hidden h-full flex-col sm:flex">{listContent}</div>
-
-      <SearchTemplatesModal
-        open={searchOpen}
-        onClose={() => setSearchOpen(false)}
-        onSelectTemplate={(t) => {
-          pick({ id: t.id, name: t.name, blank_image_url: t.blankImageUrl, image_width: t.imageWidth, image_height: t.imageHeight })
-          setSearchOpen(false)
-        }}
-      />
     </div>
   )
 }
