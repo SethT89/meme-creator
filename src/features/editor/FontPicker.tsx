@@ -4,32 +4,46 @@ import type { FontId } from '../../lib/fonts'
 interface FontPickerProps {
   // null = a legacy layer on the system font (no chosen typeface).
   fontId: FontId | null
-  // The layer's resolved CSS font-family/weight, so the button previews the
-  // typeface that is actually applied.
-  fontFamily: string
-  fontWeight: number
   open: boolean
   onToggle: () => void
   onChange: (id: FontId) => void
 }
 
-export function FontPicker({ fontId, fontFamily, fontWeight, open, onToggle, onChange }: FontPickerProps) {
+function Chevron() {
+  return (
+    <svg aria-hidden="true" width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1 2.5 4 5.5 7 2.5" />
+    </svg>
+  )
+}
+
+function Check() {
+  return (
+    <svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M2.5 7.5 5.5 10.5 11.5 3.5" />
+    </svg>
+  )
+}
+
+export function FontPicker({ fontId, open, onToggle, onChange }: FontPickerProps) {
   const label = getFontOption(fontId ?? undefined)?.label ?? 'System'
 
   return (
     <div className="relative">
       <button
         type="button"
+        // The button is a constant "Aa" so the toolbar never changes width as
+        // the font changes; the current font is named in the dropdown (checked),
+        // on hover, and to screen readers.
         aria-label={`Font: ${label}`}
+        title={label}
         aria-haspopup="menu"
         aria-expanded={open}
-        // The name is set in its own typeface so the current choice is
-        // legible at a glance — that's the point of this control.
-        style={{ fontFamily, fontWeight }}
-        className="max-w-36 truncate rounded-full px-2 py-1 text-sm"
+        className="flex items-center gap-1 rounded-full px-2 py-1 text-base"
         onClick={onToggle}
       >
-        {label}
+        Aa
+        <Chevron />
       </button>
       {open && (
         <div role="menu" aria-label="Fonts" className="absolute bottom-full left-1/2 mb-2 w-56 -translate-x-1/2 rounded-lg bg-neutral-900 p-1.5 shadow-lg">
@@ -39,12 +53,13 @@ export function FontPicker({ fontId, fontFamily, fontWeight, open, onToggle, onC
               type="button"
               role="menuitemradio"
               aria-checked={font.id === fontId}
+              // Each name in its own typeface. The check column is always
+              // reserved so the names line up whether or not one is checked.
               style={{ fontFamily: fontFamilyCss(font), fontWeight: font.weight }}
-              className={`block w-full rounded-md px-2 py-1.5 text-left text-base hover:bg-neutral-700 ${
-                font.id === fontId ? 'bg-neutral-800' : ''
-              }`}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-base hover:bg-neutral-700"
               onClick={() => onChange(font.id)}
             >
+              <span className="flex w-4 shrink-0 justify-center">{font.id === fontId && <Check />}</span>
               {font.label}
             </button>
           ))}

@@ -91,11 +91,15 @@ layers) · Layering ▾ · Delete**. Font/Size/Color/Align render only for text
 layers, as Font/Size do today. The dead "Font" and "Color" labels are
 replaced by the real controls.
 
-- **Font button** shows the current typeface's *name rendered in that
-  typeface* (per user request), so the choice is legible at a glance. The
-  dropdown lists all 8, each name set in its own typeface, current one
-  checked. Legacy layers show "System". Opening the dropdown is what first
-  triggers downloading the fonts for their previews.
+- **Font button** is a constant "Aa ⌄" (same as FigJam), so the toolbar never
+  changes width when the font changes. The current font is named in the
+  dropdown, on hover (`title`), and to screen readers (`aria-label`). The
+  dropdown lists all 8, each name set in its own typeface, with a checkmark
+  beside the current one (a reserved check column keeps the names aligned).
+  Legacy layers show no checkmark, and are named "System" in the hover/aria
+  label. Opening the dropdown is what first triggers downloading the fonts
+  for their previews. *(Revised after review: the first design showed the
+  current name in its own typeface on the button, which resized the bar.)*
 - **Size** is unchanged.
 - **Color button** is a round swatch of the current fill (like FigJam's).
   Its popover has two tabs, **Fill** and **Outline**. Both show the same

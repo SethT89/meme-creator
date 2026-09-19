@@ -136,11 +136,11 @@ describe('PropertyBar', () => {
   })
 
   describe('font, color and alignment', () => {
-    it("shows the current font's name in that font, and \"System\" for a legacy layer", () => {
+    it('shows a constant "Aa" for the font button, naming the font only to assistive tech, and "System" for a legacy layer', () => {
       const { unmount } = render(
         <PropertyBar fontSize={36} onChangeFontSize={() => {}} textStyle={textStyle} onChangeTextStyle={() => {}} onDelete={() => {}} onReorder={() => {}} canMoveForward canMoveBackward />,
       )
-      expect(screen.getByRole('button', { name: 'Font: Anton' }).style.fontFamily).toContain('Anton')
+      expect(screen.getByRole('button', { name: 'Font: Anton' })).toHaveTextContent('Aa')
       unmount()
 
       const legacyStyle = resolveTextStyle({ ...textLayer, fontFamily: undefined })

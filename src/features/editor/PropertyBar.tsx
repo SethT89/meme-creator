@@ -72,8 +72,6 @@ export function PropertyBar({
         <>
           <FontPicker
             fontId={textStyle.fontId}
-            fontFamily={textStyle.fontFamily}
-            fontWeight={textStyle.fontWeight}
             open={openMenu === 'font'}
             onToggle={() => toggleMenu('font')}
             onChange={(id) => {

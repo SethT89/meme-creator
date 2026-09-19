@@ -2,22 +2,29 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FontPicker } from './FontPicker'
-import { SYSTEM_FONT_STACK } from '../../lib/fonts'
 
-const anton = { fontId: 'anton' as const, fontFamily: `"Anton", ${SYSTEM_FONT_STACK}`, fontWeight: 400 }
-const legacy = { fontId: null, fontFamily: SYSTEM_FONT_STACK, fontWeight: 700 }
+const anton = { fontId: 'anton' as const }
+const legacy = { fontId: null }
 
 describe('FontPicker', () => {
-  it("shows the current typeface's name, set in that typeface", () => {
-    render(<FontPicker {...anton} open={false} onToggle={() => {}} onChange={() => {}} />)
-    const button = screen.getByRole('button', { name: 'Font: Anton' })
-    expect(button).toHaveTextContent('Anton')
-    expect(button.style.fontFamily).toContain('Anton')
+  it('shows a constant "Aa" on the button whatever the font, so the toolbar never changes width', () => {
+    const { unmount } = render(<FontPicker {...anton} open={false} onToggle={() => {}} onChange={() => {}} />)
+    const antonButton = screen.getByRole('button', { name: 'Font: Anton' })
+    expect(antonButton).toHaveTextContent('Aa')
+    expect(antonButton).not.toHaveTextContent('Anton')
+    // The label is not restyled in the current font either — that would make the width vary.
+    expect(antonButton.style.fontFamily).toBe('')
+    unmount()
+
+    render(<FontPicker fontId="playfair-display" open={false} onToggle={() => {}} onChange={() => {}} />)
+    expect(screen.getByRole('button', { name: 'Font: Playfair Display' })).toHaveTextContent('Aa')
   })
 
-  it('shows "System" for a legacy layer with no chosen font', () => {
+  it('still names the current font for screen readers and on hover, and says "System" for a legacy layer', () => {
     render(<FontPicker {...legacy} open={false} onToggle={() => {}} onChange={() => {}} />)
-    expect(screen.getByRole('button', { name: 'Font: System' })).toBeInTheDocument()
+    const button = screen.getByRole('button', { name: 'Font: System' })
+    expect(button).toHaveTextContent('Aa')
+    expect(button).toHaveAttribute('title', 'System')
   })
 
   it('keeps the list hidden until open, and calls onToggle on click', async () => {
@@ -46,9 +53,19 @@ describe('FontPicker', () => {
     expect(screen.getByRole('menuitemradio', { name: 'Bangers' })).toHaveAttribute('aria-checked', 'false')
   })
 
+  it('draws a checkmark beside the current font only', () => {
+    render(<FontPicker {...anton} open onToggle={() => {}} onChange={() => {}} />)
+    expect(screen.getByRole('menuitemradio', { name: 'Anton' }).querySelector('svg')).not.toBeNull()
+    expect(screen.getByRole('menuitemradio', { name: 'Bangers' }).querySelector('svg')).toBeNull()
+    expect(screen.getAllByRole('menuitemradio').filter((el) => el.querySelector('svg'))).toHaveLength(1)
+  })
+
   it('checks nothing for a legacy layer', () => {
     render(<FontPicker {...legacy} open onToggle={() => {}} onChange={() => {}} />)
-    for (const item of screen.getAllByRole('menuitemradio')) expect(item).toHaveAttribute('aria-checked', 'false')
+    for (const item of screen.getAllByRole('menuitemradio')) {
+      expect(item).toHaveAttribute('aria-checked', 'false')
+      expect(item.querySelector('svg')).toBeNull()
+    }
   })
 
   it('calls onChange with the font id', async () => {
