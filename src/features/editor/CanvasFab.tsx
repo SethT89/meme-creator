@@ -70,7 +70,7 @@ export function CanvasFab({ onAddText, onAddImage, uploadingImage = false }: Can
               type="button"
               aria-label={label}
               onClick={() => handleActionClick(key)}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:opacity-90 active:opacity-80"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:opacity-90 active:opacity-80 pointer-coarse:h-11 pointer-coarse:w-11"
             >
               <Icon className="h-4 w-4" />
             </button>

@@ -19,4 +19,21 @@ describe('Button', () => {
     render(<Button variant="outline">Cancel</Button>)
     expect(screen.getByRole('button', { name: 'Cancel' })).toHaveClass('border')
   })
+
+  describe('touch sizes', () => {
+    // jsdom can't measure a real button, so guard the classes that make each size
+    // finger-friendly on touch screens (and leave desktop as it was).
+    it.each([
+      ['sm', 'pointer-coarse:h-11'],
+      ['default', 'pointer-coarse:h-12'],
+    ] as const)('the %s size grows to %s on a touch screen', (size, expected) => {
+      render(<Button size={size}>Go</Button>)
+      expect(screen.getByRole('button', { name: 'Go' })).toHaveClass(expected)
+    })
+
+    it('keeps its compact desktop height alongside', () => {
+      render(<Button size="sm">Go</Button>)
+      expect(screen.getByRole('button', { name: 'Go' })).toHaveClass('h-8')
+    })
+  })
 })

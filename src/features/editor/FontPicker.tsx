@@ -1,6 +1,7 @@
 import { FONT_OPTIONS, fontFamilyCss, getFontOption } from '../../lib/fonts'
 import type { FontId } from '../../lib/fonts'
-import { keepInViewport } from '../../lib/viewportClamp'
+import { fitPopover } from '../../lib/viewportClamp'
+import { TAP_HEIGHT } from '../../lib/touch'
 
 interface FontPickerProps {
   // null = a legacy layer on the system font (no chosen typeface).
@@ -40,14 +41,14 @@ export function FontPicker({ fontId, open, onToggle, onChange }: FontPickerProps
         title={label}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex items-center gap-1 rounded-full px-2 py-1 text-base pointer-coarse:py-2"
+        className={`flex items-center gap-1 rounded-full px-2 py-1 text-base ${TAP_HEIGHT}`}
         onClick={onToggle}
       >
         Aa
         <Chevron />
       </button>
       {open && (
-        <div ref={keepInViewport} role="menu" aria-label="Fonts" className="absolute bottom-full left-1/2 mb-2 w-56 -translate-x-1/2 rounded-lg bg-neutral-900 p-1.5 shadow-lg">
+        <div ref={fitPopover} role="menu" aria-label="Fonts" className="absolute bottom-full left-1/2 mb-2 w-56 -translate-x-1/2 rounded-lg bg-neutral-900 p-1.5 shadow-lg">
           {FONT_OPTIONS.map((font) => (
             <button
               key={font.id}
@@ -57,7 +58,7 @@ export function FontPicker({ fontId, open, onToggle, onChange }: FontPickerProps
               // Each name in its own typeface. The check column is always
               // reserved so the names line up whether or not one is checked.
               style={{ fontFamily: fontFamilyCss(font), fontWeight: font.weight }}
-              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-base hover:bg-neutral-700 pointer-coarse:py-2.5"
+              className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-base hover:bg-neutral-700 ${TAP_HEIGHT}`}
               onClick={() => onChange(font.id)}
             >
               <span className="flex w-4 shrink-0 justify-center">{font.id === fontId && <Check />}</span>

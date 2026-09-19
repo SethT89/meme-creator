@@ -13,8 +13,10 @@ const buttonVariants = cva(
         ghost: 'bg-transparent hover:bg-muted',
       },
       size: {
-        default: 'h-10 px-4 py-2',
-        sm: 'h-8 px-3 text-xs',
+        // pointer-coarse: taller on a touch screen (44px+ fingertip targets); the
+        // compact sizes stay for a mouse. Every Button in the app inherits this.
+        default: 'h-10 px-4 py-2 pointer-coarse:h-12',
+        sm: 'h-8 px-3 text-xs pointer-coarse:h-11 pointer-coarse:text-sm',
         lg: 'h-12 px-6',
       },
     },

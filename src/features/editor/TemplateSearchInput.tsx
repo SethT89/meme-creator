@@ -1,4 +1,5 @@
 import { useRef } from 'react'
+import { TAP_HEIGHT, TAP_SIZE } from '../../lib/touch'
 
 interface TemplateSearchInputProps {
   value: string
@@ -51,7 +52,7 @@ export function TemplateSearchInput({ value, onChange, onSubmit, onArrowDown }: 
         }}
         // type="search" brings a native cancel ✕ in WebKit; hidden so the
         // app's own (consistent, keyboard-reachable) clear button is the only one.
-        className="w-full rounded-md border border-border bg-background py-2 pl-8 pr-8 text-base outline-none sm:text-sm placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-blue-500 [&::-webkit-search-cancel-button]:appearance-none"
+        className={`w-full rounded-md border border-border bg-background py-2 pl-8 pr-8 text-base outline-none sm:text-sm placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-blue-500 [&::-webkit-search-cancel-button]:appearance-none ${TAP_HEIGHT}`}
       />
       {value !== '' && (
         <button
@@ -61,7 +62,7 @@ export function TemplateSearchInput({ value, onChange, onSubmit, onArrowDown }: 
             onChange('')
             inputRef.current?.focus()
           }}
-          className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded px-1.5 text-sm text-muted-foreground hover:bg-muted"
+          className={`absolute right-1.5 top-1/2 -translate-y-1/2 rounded px-1.5 text-sm text-muted-foreground hover:bg-muted ${TAP_SIZE}`}
         >
           ✕
         </button>

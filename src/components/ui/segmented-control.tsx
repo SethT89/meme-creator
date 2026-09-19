@@ -26,7 +26,7 @@ export function SegmentedControl({ options, value, onChange }: SegmentedControlP
             aria-pressed={active}
             onClick={() => onChange(option.value)}
             className={cn(
-              'rounded-full px-5 py-2 text-sm font-semibold transition-colors',
+              'rounded-full px-5 py-2 text-sm font-semibold transition-colors pointer-coarse:py-3',
               active
                 ? 'bg-background text-foreground shadow-sm'
                 : 'text-primary-foreground/80 hover:text-primary-foreground',

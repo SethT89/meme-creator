@@ -39,4 +39,16 @@ describe('Chip', () => {
     render(<Chip label="a-very-long-tag-name" />)
     expect(screen.getByText('a-very-long-tag-name')).toHaveClass('truncate', 'max-w-full')
   })
+
+  describe('touch targets', () => {
+    it("gives the tiny remove ✕ a much larger invisible hit area on a touch screen", () => {
+      render(<Chip label="funny" onRemove={() => {}} />)
+      expect(screen.getByRole('button', { name: 'Remove funny' })).toHaveClass('pointer-coarse:before:-inset-3')
+    })
+
+    it('does the same for a chip that is itself a button (e.g. a gallery card\'s "+3")', () => {
+      render(<Chip label="+3" onClick={() => {}} />)
+      expect(screen.getByRole('button', { name: '+3' })).toHaveClass('pointer-coarse:before:-inset-2')
+    })
+  })
 })

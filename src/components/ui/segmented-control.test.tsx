@@ -23,4 +23,9 @@ describe('SegmentedControl', () => {
     await userEvent.click(screen.getByRole('button', { name: 'My Saved Memes' }))
     expect(onChange).toHaveBeenCalledWith('saved')
   })
+
+  it('grows taller on a touch screen, to a fingertip-sized 44px target', () => {
+    render(<SegmentedControl options={[{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }]} value="a" onChange={() => {}} />)
+    for (const button of screen.getAllByRole('button')) expect(button).toHaveClass('pointer-coarse:py-3')
+  })
 })

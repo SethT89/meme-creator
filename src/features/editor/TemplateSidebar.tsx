@@ -5,6 +5,7 @@ import { searchTemplates } from '../../lib/templateSearch'
 import { prefetchImage } from '../../lib/prefetchImage'
 import { useScrollLock } from '../../lib/useScrollLock'
 import { TemplateSearchInput } from './TemplateSearchInput'
+import { TAP_HEIGHT } from '../../lib/touch'
 
 export interface SelectedTemplate {
   id: string
@@ -203,7 +204,7 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
         type="button"
         aria-expanded={drawerOpen}
         onClick={() => setDrawerOpen((open) => !open)}
-        className="mb-2 w-full rounded-md border border-border p-2 text-left text-sm font-medium sm:hidden"
+        className={`mb-2 w-full rounded-md border border-border p-2 text-left text-sm font-medium sm:hidden ${TAP_HEIGHT}`}
       >
         {drawerOpen ? '✕ Close Templates' : '☰ Templates'}
       </button>

@@ -61,4 +61,25 @@ describe('SaveDialog', () => {
     await userEvent.click(screen.getByText('funny'))
     expect(screen.getAllByText('funny')).toHaveLength(1)
   })
+
+  it('focuses the tag input when the empty space of the tag box is tapped, so the whole box is one target rather than just the thin input inside it', async () => {
+    render(
+      <SaveDialog open title="Save" defaultName="Drake 1" defaultTags={['work']} existingCreations={[]} onCancel={vi.fn()} onSave={vi.fn()} />,
+    )
+    const input = screen.getByPlaceholderText('add a tag...')
+    const box = input.parentElement as HTMLElement
+    expect(input).not.toHaveFocus()
+
+    await userEvent.click(box)
+
+    expect(input).toHaveFocus()
+  })
+
+  it("does not steal the click from a chip's own remove button", async () => {
+    render(
+      <SaveDialog open title="Save" defaultName="Drake 1" defaultTags={['work']} existingCreations={[]} onCancel={vi.fn()} onSave={vi.fn()} />,
+    )
+    await userEvent.click(screen.getByRole('button', { name: 'Remove work' }))
+    expect(screen.queryByText('work')).not.toBeInTheDocument()
+  })
 })

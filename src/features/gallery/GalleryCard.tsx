@@ -3,6 +3,7 @@ import { MoreVertical } from 'lucide-react'
 import { cn } from '../../lib/cn'
 import { TagChips } from './TagChips'
 import { TagsModal } from './TagsModal'
+import { TAP_HEIGHT } from '../../lib/touch'
 
 export interface GalleryCardProps {
   creation: {
@@ -16,7 +17,7 @@ export interface GalleryCardProps {
   onDelete: (id: string) => void
 }
 
-const MENU_ITEM = 'block w-full px-3 py-1.5 text-left text-sm hover:bg-muted active:bg-border pointer-coarse:py-2.5'
+const MENU_ITEM = `block w-full px-3 py-1.5 text-left text-sm hover:bg-muted active:bg-border ${TAP_HEIGHT}`
 
 export function GalleryCard({ creation, onDownload, onOpen, onDelete }: GalleryCardProps) {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -98,7 +99,7 @@ export function GalleryCard({ creation, onDownload, onOpen, onDelete }: GalleryC
           aria-expanded={menuOpen}
           onClick={() => setMenuOpen((open) => !open)}
           className={cn(
-            'flex h-8 w-8 items-center justify-center pointer-coarse:h-10 pointer-coarse:w-10 rounded-md border border-border bg-background shadow-sm transition-opacity hover:bg-muted active:bg-border focus-visible:opacity-100 [@media(hover:none)]:opacity-100',
+            'flex h-8 w-8 items-center justify-center pointer-coarse:h-11 pointer-coarse:w-11 rounded-md border border-border bg-background shadow-sm transition-opacity hover:bg-muted active:bg-border focus-visible:opacity-100 [@media(hover:none)]:opacity-100',
             // Shown on hover, and kept visible while its own menu is open.
             // On touch screens there is no hover, so it's always shown there.
             menuOpen ? 'opacity-100' : 'opacity-0 group-hover/card:opacity-100',

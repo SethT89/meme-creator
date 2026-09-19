@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Chip } from '../../components/ui/chip'
 import { Button } from '../../components/ui/button'
 import { suggestTags } from '../../lib/creationNaming'
+import { TAP_HEIGHT } from '../../lib/touch'
 
 export interface SaveDialogProps {
   open: boolean
@@ -28,6 +29,7 @@ export function SaveDialog({
   onSave,
 }: SaveDialogProps) {
   const [name, setName] = useState(defaultName)
+  const tagInputRef = useRef<HTMLInputElement>(null)
   const [tags, setTags] = useState<string[]>(defaultTags)
   const [tagInput, setTagInput] = useState('')
   const tagSuggestions = suggestTags(existingCreations, tagInput)
@@ -53,17 +55,26 @@ export function SaveDialog({
         <input
           id="save-name"
           aria-label="Name"
-          className="mb-3 w-full rounded-md border border-border px-2 py-1.5 text-base sm:text-sm"
+          className={`mb-3 w-full rounded-md border border-border px-2 py-1.5 text-base sm:text-sm ${TAP_HEIGHT}`}
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
 
         <p className="mb-1 text-xs uppercase text-muted-foreground">Tags</p>
-        <div className="mb-1 flex flex-wrap gap-1.5 rounded-md border border-border p-1.5">
+        // The bordered box is the visible target, but only the thin input inside it took
+        // focus — tapping the rest of the box did nothing. Tapping the box's own empty space
+        // focuses the input (a tap on a chip or its ✕ is left alone).
+        <div
+          className={`mb-1 flex flex-wrap items-center gap-1.5 rounded-md border border-border p-1.5 ${TAP_HEIGHT}`}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) tagInputRef.current?.focus()
+          }}
+        >
           {tags.map((tag) => (
             <Chip key={tag} label={tag} onRemove={() => setTags(tags.filter((t) => t !== tag))} />
           ))}
           <input
+            ref={tagInputRef}
             className="min-w-[60px] flex-1 text-base outline-none sm:text-xs"
             placeholder="add a tag..."
             value={tagInput}
@@ -81,7 +92,7 @@ export function SaveDialog({
             {tagSuggestions.map((s) => (
               <div
                 key={s}
-                className="cursor-pointer px-2 py-1 text-xs hover:bg-muted"
+                className={`flex cursor-pointer items-center px-2 py-1 text-xs hover:bg-muted ${TAP_HEIGHT}`}
                 onClick={() => addTag(s)}
               >
                 {s}

@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { keepInViewport } from '../../lib/viewportClamp'
+import { fitPopover } from '../../lib/viewportClamp'
 import { SIZE_PRESETS, clampFontSize, sizeLabel } from '../../lib/layers'
 import type { ReorderAction, ResolvedTextStyle, TextStylePatch } from '../../lib/layers'
 import { AlignPicker } from './AlignPicker'
 import { ColorPicker } from './ColorPicker'
 import { FontPicker } from './FontPicker'
+import { TAP_HEIGHT } from '../../lib/touch'
 
 interface PropertyBarProps {
   // The four props below are present for a text layer and omitted for an
@@ -83,15 +84,15 @@ export function PropertyBar({
           {DIVIDER}
 
           <div className="relative">
-            <button type="button" className="rounded-full px-2 py-1 text-xs pointer-coarse:py-2.5" onClick={() => toggleMenu('size')}>
+            <button type="button" className={`rounded-full px-2 py-1 text-xs ${TAP_HEIGHT}`} onClick={() => toggleMenu('size')}>
               Size: {sizeLabel(fontSize)}
             </button>
             {openMenu === 'size' && (
-              <div ref={keepInViewport} className="absolute bottom-full left-1/2 mb-2 w-40 -translate-x-1/2 rounded-lg bg-neutral-900 p-1.5 shadow-lg">
+              <div ref={fitPopover} className="absolute bottom-full left-1/2 mb-2 w-40 -translate-x-1/2 rounded-lg bg-neutral-900 p-1.5 shadow-lg">
                 {SIZE_PRESETS.map((preset) => (
                   <div
                     key={preset.label}
-                    className="cursor-pointer rounded-md px-2 py-1.5 text-sm hover:bg-neutral-700 pointer-coarse:py-2.5"
+                    className={`flex cursor-pointer items-center rounded-md px-2 py-1.5 text-sm hover:bg-neutral-700 ${TAP_HEIGHT}`}
                     onClick={() => {
                       onChangeFontSize(preset.px)
                       setOpenMenu(null)
@@ -109,7 +110,7 @@ export function PropertyBar({
                     aria-label="Custom font size"
                     type="number"
                     defaultValue={fontSize}
-                    className="w-full rounded-md bg-neutral-800 px-2 py-1 text-base text-white sm:text-sm"
+                    className={`w-full rounded-md bg-neutral-800 px-2 py-1 text-base text-white sm:text-sm ${TAP_HEIGHT}`}
                     // The on-canvas preview should track every keystroke, not
                     // just the final committed value — onBlur/Enter below are
                     // now just redundant convenience (harmless to keep; Enter
@@ -151,7 +152,7 @@ export function PropertyBar({
 
       {onCrop && (
         <>
-          <button type="button" className="rounded-full px-2 py-1 text-xs pointer-coarse:py-2.5" onClick={onCrop}>
+          <button type="button" className={`rounded-full px-2 py-1 text-xs ${TAP_HEIGHT}`} onClick={onCrop}>
             Crop
           </button>
           {DIVIDER}
@@ -161,7 +162,7 @@ export function PropertyBar({
       <div className="relative">
         <button
           type="button"
-          className="rounded-full px-2 py-1 text-xs pointer-coarse:py-2.5"
+          className={`rounded-full px-2 py-1 text-xs ${TAP_HEIGHT}`}
           aria-haspopup="menu"
           aria-expanded={openMenu === 'layering'}
           onClick={() => toggleMenu('layering')}
@@ -169,14 +170,14 @@ export function PropertyBar({
           Layering
         </button>
         {openMenu === 'layering' && (
-          <div ref={keepInViewport} role="menu" className="absolute bottom-full left-1/2 mb-2 w-48 -translate-x-1/2 rounded-lg bg-neutral-900 p-1.5 shadow-lg">
+          <div ref={fitPopover} role="menu" className="absolute bottom-full left-1/2 mb-2 w-48 -translate-x-1/2 rounded-lg bg-neutral-900 p-1.5 shadow-lg">
             {LAYERING_OPTIONS.map((option) => (
               <button
                 key={option.action}
                 type="button"
                 role="menuitem"
                 disabled={!(option.needs === 'forward' ? canMoveForward : canMoveBackward)}
-                className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-neutral-700 pointer-coarse:py-2.5 disabled:cursor-default disabled:text-neutral-500 disabled:hover:bg-transparent"
+                className={`flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm hover:bg-neutral-700 ${TAP_HEIGHT} disabled:cursor-default disabled:text-neutral-500 disabled:hover:bg-transparent`}
                 onClick={() => {
                   onReorder(option.action)
                   setOpenMenu(null)
@@ -192,7 +193,7 @@ export function PropertyBar({
         )}
       </div>
       {DIVIDER}
-      <button type="button" className="rounded-full px-2 py-1 text-xs text-red-400 pointer-coarse:py-2.5" onClick={onDelete}>
+      <button type="button" className={`rounded-full px-2 py-1 text-xs text-red-400 ${TAP_HEIGHT}`} onClick={onDelete}>
         Delete
       </button>
     </div>

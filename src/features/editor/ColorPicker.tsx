@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { SWATCH_ROWS } from '../../lib/palette'
 import type { TextStylePatch } from '../../lib/layers'
-import { keepInViewport } from '../../lib/viewportClamp'
+import { fitPopover } from '../../lib/viewportClamp'
+import { TAP_SIZE } from '../../lib/touch'
 
 type Tab = 'fill' | 'outline'
 
@@ -14,7 +15,9 @@ interface ColorPickerProps {
   onChange: (patch: Pick<TextStylePatch, 'color' | 'strokeColor'>) => void
 }
 
-const SWATCH_BASE = 'h-5 w-5 shrink-0 rounded-full border pointer-coarse:h-6 pointer-coarse:w-6'
+// 20px with a mouse; 32px on touch (and 6 per row there, below) — 11 across at a
+// fingertip-friendly size wouldn't fit a phone.
+const SWATCH_BASE = 'h-5 w-5 shrink-0 rounded-full border pointer-coarse:h-8 pointer-coarse:w-8'
 
 export function ColorPicker({ color, strokeColor, open, onToggle, onChange }: ColorPickerProps) {
   const [tab, setTab] = useState<Tab>('fill')
@@ -33,7 +36,7 @@ export function ColorPicker({ color, strokeColor, open, onToggle, onChange }: Co
         aria-label="Text color"
         aria-haspopup="dialog"
         aria-expanded={open}
-        className="flex items-center rounded-full px-2 py-1.5 pointer-coarse:py-2.5"
+        className={`flex items-center justify-center rounded-full px-2 py-1.5 ${TAP_SIZE}`}
         onClick={onToggle}
       >
         {/* Shows both colors at a glance: the fill is the disc, the outline is
@@ -46,7 +49,7 @@ export function ColorPicker({ color, strokeColor, open, onToggle, onChange }: Co
         />
       </button>
       {open && (
-        <div ref={keepInViewport} role="dialog" aria-label="Text color" className="absolute bottom-full left-1/2 mb-2 w-max -translate-x-1/2 rounded-xl bg-neutral-900 p-3 shadow-lg">
+        <div ref={fitPopover} role="dialog" aria-label="Text color" className="absolute bottom-full left-1/2 mb-2 w-max -translate-x-1/2 rounded-xl bg-neutral-900 p-3 shadow-lg">
           <div className="mb-3 flex items-center gap-2 border-b border-neutral-700 pb-2">
             <div role="tablist" className="flex gap-1">
               {(['fill', 'outline'] as const).map((name) => (
@@ -55,7 +58,7 @@ export function ColorPicker({ color, strokeColor, open, onToggle, onChange }: Co
                   type="button"
                   role="tab"
                   aria-selected={tab === name}
-                  className={`rounded-md px-2.5 py-1 text-sm pointer-coarse:py-2 ${tab === name ? 'bg-neutral-700' : 'hover:bg-neutral-800'}`}
+                  className={`rounded-md px-2.5 py-1 text-sm ${TAP_SIZE} ${tab === name ? 'bg-neutral-700' : 'hover:bg-neutral-800'}`}
                   onClick={() => setTab(name)}
                 >
                   {name === 'fill' ? 'Fill' : 'Outline'}
@@ -66,7 +69,7 @@ export function ColorPicker({ color, strokeColor, open, onToggle, onChange }: Co
               <button
                 type="button"
                 aria-pressed={strokeColor === null}
-                className={`ml-auto rounded-md px-2.5 py-1 text-sm pointer-coarse:py-2 ${strokeColor === null ? 'bg-neutral-700' : 'hover:bg-neutral-800'}`}
+                className={`ml-auto rounded-md px-2.5 py-1 text-sm ${TAP_SIZE} ${strokeColor === null ? 'bg-neutral-700' : 'hover:bg-neutral-800'}`}
                 onClick={() => onChange({ strokeColor: null })}
               >
                 None
@@ -75,7 +78,7 @@ export function ColorPicker({ color, strokeColor, open, onToggle, onChange }: Co
           </div>
 
           {SWATCH_ROWS.map((row, rowIndex) => (
-            <div key={rowIndex} className="mb-1 flex gap-1 last:mb-0">
+            <div key={rowIndex} className="mb-1 grid grid-cols-11 gap-1 last:mb-0 pointer-coarse:mb-2 pointer-coarse:grid-cols-6 pointer-coarse:gap-2">
               {row.map((swatch) => {
                 const isSelected = selected === swatch.hex
                 return (
