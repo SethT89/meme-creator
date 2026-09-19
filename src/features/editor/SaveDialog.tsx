@@ -44,7 +44,7 @@ export function SaveDialog({
 
   return (
     <div role="dialog" className="fixed inset-0 flex items-center justify-center bg-black/50">
-      <div className="w-80 rounded-lg bg-background p-4 shadow-lg">
+      <div className="w-80 max-w-[calc(100vw-2rem)] rounded-lg bg-background p-4 shadow-lg">
         <h2 className="mb-3 text-sm font-semibold">{title}</h2>
 
         <label htmlFor="save-name" className="mb-1 block text-xs uppercase text-muted-foreground">
@@ -53,7 +53,7 @@ export function SaveDialog({
         <input
           id="save-name"
           aria-label="Name"
-          className="mb-3 w-full rounded-md border border-border px-2 py-1.5 text-sm"
+          className="mb-3 w-full rounded-md border border-border px-2 py-1.5 text-base sm:text-sm"
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
@@ -64,7 +64,7 @@ export function SaveDialog({
             <Chip key={tag} label={tag} onRemove={() => setTags(tags.filter((t) => t !== tag))} />
           ))}
           <input
-            className="min-w-[60px] flex-1 text-xs outline-none"
+            className="min-w-[60px] flex-1 text-base outline-none sm:text-xs"
             placeholder="add a tag..."
             value={tagInput}
             onChange={(e) => setTagInput(e.target.value)}

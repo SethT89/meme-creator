@@ -75,7 +75,9 @@ export function GalleryPage() {
         <p className="text-sm text-muted-foreground">Nothing saved yet — go make something.</p>
       )}
 
-      <div className="grid grid-cols-3 gap-3">
+      {/* 2 columns on a phone: 3 made each card ~100px wide, too narrow for a
+          readable name or its tags. */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {creations.map((creation) => (
           <GalleryCard
             key={creation.id}

@@ -42,6 +42,7 @@ import {
 } from '../../lib/layers'
 import type { Layer, TextLayer, ImageLayer, ImageBounds, ResizeSign, ReorderAction, TextStylePatch } from '../../lib/layers'
 import { renderCreationToBlob } from '../../lib/exportCanvas'
+import { keepInViewport } from '../../lib/viewportClamp'
 import type { RenderOptions } from '../../lib/exportCanvas'
 import { canShareFile, downloadBlob, isMobileOrTabletDevice, sanitizeFilename, shareFile } from '../../lib/exportDelivery'
 import { prepareImageForUpload } from '../../lib/imageUpload'
@@ -67,6 +68,10 @@ type Source =
       backgroundY?: number
     }
   | null
+// Two taps on the same caption within this long, and this close together, are a
+// double-tap (see handleTextPointerUp).
+const DOUBLE_TAP_MS = 350
+const DOUBLE_TAP_SLOP = 24
 type SavedMeta = { id: string; name: string; tags: string[] } | null
 type CanvasData = { layers?: Layer[]; canvasWidth?: number; canvasHeight?: number; backgroundX?: number; backgroundY?: number }
 
@@ -191,6 +196,8 @@ export function EditorPage() {
   const imgRef = useRef<HTMLElement>(null)
   // The template image inside the canvas box (drawn under every layer).
   const bgImgRef = useRef<HTMLImageElement>(null)
+  // The previous tap on a text box, for double-tap detection (touch has no dblclick).
+  const lastTap = useRef<{ id: string; time: number; x: number; y: number } | null>(null)
   // Set once a canvas resize actually changes something, so switching templates
   // afterwards asks before throwing the adjustment away, even with no layer
   // edits. Reset wherever the baseline layers are reset.
@@ -546,12 +553,47 @@ export function EditorPage() {
     e.currentTarget.setPointerCapture?.(e.pointerId)
   }
 
-  function handleDoubleClick(e: ReactMouseEvent<HTMLDivElement>, layer: TextLayer) {
-    e.stopPropagation()
+  function beginEditing(layer: TextLayer) {
     setSelectedFieldId(layer.id)
     editStartLabel.current = layer.label
     needsEditFocus.current = true
     setEditingLayerId(layer.id)
+  }
+
+  function handleDoubleClick(e: ReactMouseEvent<HTMLDivElement>, layer: TextLayer) {
+    e.stopPropagation()
+    beginEditing(layer)
+  }
+
+  // A phone has no double-click, and iOS doesn't reliably synthesize one for
+  // these touch-none, pointer-captured boxes — so on touch/pen, two quick taps
+  // on the same caption enter edit mode themselves. (A mouse keeps the real
+  // dblclick above.) Both taps must land within DOUBLE_TAP_MS and
+  // DOUBLE_TAP_SLOP px of each other, and a drag doesn't count as a tap.
+  function handleTextPointerUp(e: ReactPointerEvent<HTMLDivElement>, layer: TextLayer) {
+    const drag = dragState.current
+    dragState.current = null
+    if (e.pointerType === 'mouse') return
+    // Already editing: a tap places the text cursor. Re-running "enter edit
+    // mode" would select all the text again under the user's finger.
+    if (editingLayerId === layer.id) return
+    if (drag?.moved) {
+      lastTap.current = null
+      return
+    }
+    const now = Date.now()
+    const previous = lastTap.current
+    if (
+      previous &&
+      previous.id === layer.id &&
+      now - previous.time <= DOUBLE_TAP_MS &&
+      Math.hypot(e.clientX - previous.x, e.clientY - previous.y) <= DOUBLE_TAP_SLOP
+    ) {
+      lastTap.current = null
+      beginEditing(layer)
+    } else {
+      lastTap.current = { id: layer.id, time: now, x: e.clientX, y: e.clientY }
+    }
   }
 
   // CanvasFab's Add Text action. A no-op until there's a real canvas to
@@ -1068,7 +1110,9 @@ export function EditorPage() {
   }
 
   return (
-    <div className="flex h-full gap-6">
+    // Stacked on a phone: the template toggle sits ABOVE the canvas instead of beside
+    // it (side by side, the toggle's column took width and squeezed the canvas).
+    <div className="flex h-full flex-col gap-3 sm:flex-row sm:gap-6">
       <TemplateSidebar selectedTemplateId={source?.type === 'template' ? source.templateId : undefined} onSelectTemplate={handleSelectTemplate} />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -1136,7 +1180,7 @@ export function EditorPage() {
             // (and on a canvas wider than the space, the whole left side) was
             // cut off and could not be grabbed. The width/height budgets in the
             // canvas box's className below are reduced by exactly these margins.
-            className="relative m-2 inline-block rounded-lg bg-[repeating-conic-gradient(#00000010_0%_25%,transparent_0%_50%)] bg-[length:20px_20px] sm:mr-12 sm:mb-4"
+            className="relative m-2 mb-16 inline-block rounded-lg bg-[repeating-conic-gradient(#00000010_0%_25%,transparent_0%_50%)] bg-[length:20px_20px] sm:mr-12 sm:mb-4"
           >
             {/* Same fill-available-height approach as the template <img>
                 below (viewport-relative height + aspect-square instead of a
@@ -1161,7 +1205,7 @@ export function EditorPage() {
                 `100vw - constant` — across multiple widths), each rounded
                 up slightly to a clean rem value for a small safety margin. */}
             {source === null && (
-              <div className="aspect-square h-[65vh] max-w-[calc(100vw-14rem)] sm:h-[calc(100vh-19rem)] sm:max-w-[calc(100vw-24rem)] sm:min-h-[240px]" />
+              <div className="aspect-square w-[calc(100vw-3.75rem)] sm:h-[calc(100vh-19rem)] sm:w-auto sm:max-w-[calc(100vw-24rem)] sm:min-h-[240px]" />
             )}
             {source !== null && activeCanvas && (
               // One canvas box for both kinds of canvas — a plain <div>, sized to FIT
@@ -1203,7 +1247,7 @@ export function EditorPage() {
                   // The exact ratio, for the width formula in className below.
                   '--canvas-ratio': activeCanvas.width / activeCanvas.height,
                 } as CSSProperties}
-                className="relative block w-[min(calc(100vw-15rem),calc(65vh*var(--canvas-ratio)))] overflow-hidden sm:w-[min(calc(100vw-27.5rem),calc((100vh-19.5rem)*var(--canvas-ratio)))]"
+                className="relative block w-[min(calc(100vw-3.75rem),calc(65vh*var(--canvas-ratio)))] overflow-hidden sm:w-[min(calc(100vw-27.5rem),calc((100vh-19.5rem)*var(--canvas-ratio)))]"
               >
                 {source.type === 'template' && templateBackground && (
                   <img
@@ -1246,7 +1290,7 @@ export function EditorPage() {
               </div>
             )}
             {source?.type === 'freeform' && !activeCanvas && (
-              <div className="flex h-80 w-80 items-center justify-center border border-border bg-muted text-sm text-muted-foreground">
+              <div className="flex h-80 w-80 max-w-[calc(100vw-3.75rem)] items-center justify-center border border-border bg-muted text-sm text-muted-foreground">
                 {source.name}
               </div>
             )}
@@ -1346,7 +1390,7 @@ export function EditorPage() {
                             RESIZE_HANDLES.map((handle) => (
                               <div
                                 key={handle.key}
-                                className="absolute z-10 h-2.5 w-2.5 touch-none border border-blue-500 bg-white"
+                                className="absolute z-10 h-2.5 w-2.5 touch-none pointer-coarse:h-4 pointer-coarse:w-4 pointer-coarse:before:absolute pointer-coarse:before:-inset-3 border border-blue-500 bg-white"
                                 style={{ top: handle.top, left: handle.left, transform: 'translate(-50%, -50%)', cursor: handle.cursor }}
                                 onPointerDown={(e) => handleCropResizePointerDown(e, layer, handle.xSign, handle.ySign)}
                                 onPointerMove={handleCropResizePointerMove}
@@ -1359,7 +1403,7 @@ export function EditorPage() {
                             CORNER_RESIZE_HANDLES.map((handle) => (
                               <div
                                 key={handle.key}
-                                className="absolute h-2.5 w-2.5 touch-none border border-blue-500 bg-white"
+                                className="absolute h-2.5 w-2.5 touch-none pointer-coarse:h-4 pointer-coarse:w-4 pointer-coarse:before:absolute pointer-coarse:before:-inset-3 border border-blue-500 bg-white"
                                 style={{ top: handle.top, left: handle.left, transform: 'translate(-50%, -50%)', cursor: handle.cursor }}
                                 onPointerDown={(e) => handleResizePointerDown(e, layer, handle.xSign, handle.ySign)}
                                 onPointerMove={handleResizePointerMove}
@@ -1453,7 +1497,7 @@ export function EditorPage() {
                           }
                           onPointerDown={(e) => handlePointerDown(e, layer)}
                           onPointerMove={handlePointerMove}
-                          onPointerUp={handlePointerUp}
+                          onPointerUp={(e) => handleTextPointerUp(e, layer)}
                           onClick={(e) => e.stopPropagation()}
                           onDoubleClick={(e) => handleDoubleClick(e, layer)}
                           onInput={(e) => handleLabelInput(layer.id, e.currentTarget.textContent ?? '')}
@@ -1472,7 +1516,7 @@ export function EditorPage() {
                             RESIZE_HANDLES.map((handle) => (
                               <div
                                 key={handle.key}
-                                className="absolute h-2.5 w-2.5 touch-none border border-blue-500 bg-white"
+                                className="absolute h-2.5 w-2.5 touch-none pointer-coarse:h-4 pointer-coarse:w-4 pointer-coarse:before:absolute pointer-coarse:before:-inset-3 border border-blue-500 bg-white"
                                 style={{ top: handle.top, left: handle.left, transform: 'translate(-50%, -50%)', cursor: handle.cursor }}
                                 onPointerDown={(e) => handleResizePointerDown(e, layer, handle.xSign, handle.ySign)}
                                 onPointerMove={handleResizePointerMove}
@@ -1494,6 +1538,10 @@ export function EditorPage() {
                             // The max-w caps it to the screen so it only wraps when
                             // it genuinely can't fit.
                             className="fixed z-50 w-max max-w-[calc(100vw-1rem)]"
+                            // Centered on its layer, so a layer near either screen edge
+                            // would push it off-screen; re-fitted on every render because
+                            // the bar moves with the layer.
+                            ref={(el) => keepInViewport(el)}
                             style={{
                               left: propertyBarPos.left,
                               top: propertyBarPos.top,
@@ -1528,7 +1576,7 @@ export function EditorPage() {
                   <div
                     key={handle.key}
                     data-canvas-handle={handle.key}
-                    className="absolute z-10 h-2.5 w-2.5 touch-none border border-neutral-500 bg-white"
+                    className="absolute z-10 h-2.5 w-2.5 touch-none pointer-coarse:h-4 pointer-coarse:w-4 pointer-coarse:before:absolute pointer-coarse:before:-inset-3 border border-neutral-500 bg-white"
                     style={{ top: handle.top, left: handle.left, transform: 'translate(-50%, -50%)', cursor: handle.cursor }}
                     onPointerDown={(e) => handleCanvasResizePointerDown(e, handle.xSign, handle.ySign)}
                     onPointerMove={handleCanvasResizePointerMove}

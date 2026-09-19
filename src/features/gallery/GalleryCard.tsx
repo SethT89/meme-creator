@@ -16,7 +16,7 @@ export interface GalleryCardProps {
   onDelete: (id: string) => void
 }
 
-const MENU_ITEM = 'block w-full px-3 py-1.5 text-left text-sm hover:bg-muted active:bg-border'
+const MENU_ITEM = 'block w-full px-3 py-1.5 text-left text-sm hover:bg-muted active:bg-border pointer-coarse:py-2.5'
 
 export function GalleryCard({ creation, onDownload, onOpen, onDelete }: GalleryCardProps) {
   const [menuOpen, setMenuOpen] = useState(false)
@@ -98,7 +98,7 @@ export function GalleryCard({ creation, onDownload, onOpen, onDelete }: GalleryC
           aria-expanded={menuOpen}
           onClick={() => setMenuOpen((open) => !open)}
           className={cn(
-            'flex h-8 w-8 items-center justify-center rounded-md border border-border bg-background shadow-sm transition-opacity hover:bg-muted active:bg-border focus-visible:opacity-100 [@media(hover:none)]:opacity-100',
+            'flex h-8 w-8 items-center justify-center pointer-coarse:h-10 pointer-coarse:w-10 rounded-md border border-border bg-background shadow-sm transition-opacity hover:bg-muted active:bg-border focus-visible:opacity-100 [@media(hover:none)]:opacity-100',
             // Shown on hover, and kept visible while its own menu is open.
             // On touch screens there is no hover, so it's always shown there.
             menuOpen ? 'opacity-100' : 'opacity-0 group-hover/card:opacity-100',

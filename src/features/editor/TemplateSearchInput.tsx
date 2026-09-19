@@ -51,7 +51,7 @@ export function TemplateSearchInput({ value, onChange, onSubmit, onArrowDown }: 
         }}
         // type="search" brings a native cancel ✕ in WebKit; hidden so the
         // app's own (consistent, keyboard-reachable) clear button is the only one.
-        className="w-full rounded-md border border-border bg-background py-2 pl-8 pr-8 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-blue-500 [&::-webkit-search-cancel-button]:appearance-none"
+        className="w-full rounded-md border border-border bg-background py-2 pl-8 pr-8 text-base outline-none sm:text-sm placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-blue-500 [&::-webkit-search-cancel-button]:appearance-none"
       />
       {value !== '' && (
         <button
