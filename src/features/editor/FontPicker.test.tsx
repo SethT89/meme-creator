@@ -3,6 +3,9 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FontPicker } from './FontPicker'
 
+vi.mock('../../lib/fonts', async (importActual) => ({ ...(await importActual<typeof import('../../lib/fonts')>()), preloadFonts: vi.fn() }))
+import { preloadFonts } from '../../lib/fonts'
+
 const anton = { fontId: 'anton' as const }
 const legacy = { fontId: null }
 
@@ -74,4 +77,12 @@ describe('FontPicker', () => {
     await userEvent.click(screen.getByRole('menuitemradio', { name: 'Bebas Neue' }))
     expect(onChange).toHaveBeenCalledWith('bebas-neue')
   })
+
+  it('starts loading all the fonts as soon as it appears (a text layer was selected), before the menu is opened', () => {
+    vi.mocked(preloadFonts).mockClear()
+    render(<FontPicker {...anton} open={false} onToggle={() => {}} onChange={() => {}} />)
+    expect(preloadFonts).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  })
 })
+

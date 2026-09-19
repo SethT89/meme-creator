@@ -1,11 +1,12 @@
 import { useState } from 'react'
+import { Layers, Trash2 } from 'lucide-react'
 import { fitPopover } from '../../lib/viewportClamp'
 import { SIZE_PRESETS, clampFontSize, sizeLabel } from '../../lib/layers'
 import type { ReorderAction, ResolvedTextStyle, TextStylePatch } from '../../lib/layers'
 import { AlignPicker } from './AlignPicker'
 import { ColorPicker } from './ColorPicker'
 import { FontPicker } from './FontPicker'
-import { TAP_HEIGHT } from '../../lib/touch'
+import { TAP_HEIGHT, TAP_SIZE } from '../../lib/touch'
 
 interface PropertyBarProps {
   // The four props below are present for a text layer and omitted for an
@@ -25,6 +26,10 @@ interface PropertyBarProps {
   onReorder: (action: ReorderAction) => void
   canMoveForward: boolean
   canMoveBackward: boolean
+  // On a phone the bar is docked to the bottom of the screen (EditorPage decides): a
+  // full-width, evenly spaced row attached to the bottom edge, instead of the floating
+  // pill that follows the selected layer around on larger screens.
+  docked?: boolean
 }
 
 // Order matches the dropdown top-to-bottom. `needs` is which direction the
@@ -41,6 +46,10 @@ type MenuName = 'font' | 'size' | 'color' | 'align' | 'layering'
 
 const DIVIDER = <div className="h-4 w-px bg-neutral-700" />
 
+// Icon-only buttons (Layering, Delete): a 16px icon in a compact hit area — words made the bar
+// wide. Each still has an aria-label and a title tooltip so it stays understandable.
+const ICON_BUTTON = `flex items-center justify-center rounded-full px-2 py-1.5 ${TAP_SIZE}`
+
 export function PropertyBar({
   fontSize,
   onChangeFontSize,
@@ -51,7 +60,10 @@ export function PropertyBar({
   onReorder,
   canMoveForward,
   canMoveBackward,
+  docked = false,
 }: PropertyBarProps) {
+  // The thin lines between groups cost width; a docked bar spaces its groups evenly instead.
+  const divider = docked ? null : DIVIDER
   // One menu open at a time: opening any menu replaces whichever was open.
   const [openMenu, setOpenMenu] = useState<MenuName | null>(null)
   const toggleMenu = (name: MenuName) => setOpenMenu((current) => (current === name ? null : name))
@@ -69,7 +81,13 @@ export function PropertyBar({
   return (
     // flex-wrap + a viewport-relative max width: on a narrow screen the
     // (now wider) bar wraps onto a second row instead of running off-screen.
-    <div className="flex max-w-[calc(100vw-1rem)] flex-wrap items-center justify-center gap-1 rounded-3xl bg-neutral-900 px-2 py-1.5 text-white shadow-lg">
+    <div
+      className={
+        docked
+          ? 'flex w-full flex-wrap items-center justify-around gap-1 rounded-t-2xl bg-neutral-900 px-2 py-1 text-white shadow-[0_-6px_18px_rgba(0,0,0,0.3)]'
+          : 'flex max-w-[calc(100vw-1rem)] flex-wrap items-center justify-center gap-1 rounded-3xl bg-neutral-900 px-2 py-1.5 text-white shadow-lg'
+      }
+    >
       {fontSize !== undefined && onChangeFontSize !== undefined && textStyle !== undefined && onChangeTextStyle !== undefined && (
         <>
           <FontPicker
@@ -81,11 +99,18 @@ export function PropertyBar({
               setOpenMenu(null)
             }}
           />
-          {DIVIDER}
+          {divider}
 
           <div className="relative">
-            <button type="button" className={`rounded-full px-2 py-1 text-xs ${TAP_HEIGHT}`} onClick={() => toggleMenu('size')}>
-              Size: {sizeLabel(fontSize)}
+            <button
+              type="button"
+              className={`rounded-full px-2 py-1 text-xs ${TAP_HEIGHT}`}
+              // Docked, the label is just the value ("22px") so the whole row fits one line even
+              // on a 320px phone; the full "Size: Medium" stays as its accessible name.
+              aria-label={docked ? `Size: ${sizeLabel(fontSize)}` : undefined}
+              onClick={() => toggleMenu('size')}
+            >
+              {docked ? `${fontSize}px` : `Size: ${sizeLabel(fontSize)}`}
             </button>
             {openMenu === 'size' && (
               <div ref={fitPopover} className="absolute bottom-full left-1/2 mb-2 w-40 -translate-x-1/2 rounded-lg bg-neutral-900 p-1.5 shadow-lg">
@@ -128,7 +153,7 @@ export function PropertyBar({
               </div>
             )}
           </div>
-          {DIVIDER}
+          {divider}
 
           <ColorPicker
             color={textStyle.color}
@@ -146,7 +171,7 @@ export function PropertyBar({
               setOpenMenu(null)
             }}
           />
-          {DIVIDER}
+          {divider}
         </>
       )}
 
@@ -155,19 +180,21 @@ export function PropertyBar({
           <button type="button" className={`rounded-full px-2 py-1 text-xs ${TAP_HEIGHT}`} onClick={onCrop}>
             Crop
           </button>
-          {DIVIDER}
+          {divider}
         </>
       )}
 
       <div className="relative">
         <button
           type="button"
-          className={`rounded-full px-2 py-1 text-xs ${TAP_HEIGHT}`}
+          className={ICON_BUTTON}
+          aria-label="Layering"
+          title="Layering"
           aria-haspopup="menu"
           aria-expanded={openMenu === 'layering'}
           onClick={() => toggleMenu('layering')}
         >
-          Layering
+          <Layers className="h-4 w-4" aria-hidden="true" />
         </button>
         {openMenu === 'layering' && (
           <div ref={fitPopover} role="menu" className="absolute bottom-full left-1/2 mb-2 w-48 -translate-x-1/2 rounded-lg bg-neutral-900 p-1.5 shadow-lg">
@@ -192,9 +219,9 @@ export function PropertyBar({
           </div>
         )}
       </div>
-      {DIVIDER}
-      <button type="button" className={`rounded-full px-2 py-1 text-xs text-red-400 ${TAP_HEIGHT}`} onClick={onDelete}>
-        Delete
+      {divider}
+      <button type="button" className={`${ICON_BUTTON} text-red-400`} aria-label="Delete" title="Delete" onClick={onDelete}>
+        <Trash2 className="h-4 w-4" aria-hidden="true" />
       </button>
     </div>
   )

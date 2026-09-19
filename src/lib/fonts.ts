@@ -52,3 +52,23 @@ export function getFontOption(id: string | undefined): FontOption | undefined {
 export function fontFamilyCss(font: FontOption | undefined): string {
   return font ? `"${font.family}", ${SYSTEM_FONT_STACK}` : SYSTEM_FONT_STACK
 }
+
+// The font files are downloaded on demand — the first time text in that font is
+// drawn — so the FIRST time the font menu opened, all 8 started downloading at once
+// and each name visibly restyled as its file arrived. Call this as soon as a text
+// layer is selected (the font button appears then) and they're already in before the
+// menu opens. It's ~200 KB in total, spent only by people who actually edit text.
+//
+// Runs once: every later selection is a no-op. If the download fails (offline), the
+// flag is cleared so the next selection tries again instead of giving up for good.
+let preloaded = false
+
+export function preloadFonts(): void {
+  if (preloaded || typeof document === 'undefined' || !document.fonts) return
+  preloaded = true
+  // 'Aa' makes sure the latin subset (the only one we ship) is the part that loads.
+  Promise.all(FONT_OPTIONS.map((font) => document.fonts.load(`${font.weight} 16px "${font.family}"`, 'Aa'))).catch(() => {
+    preloaded = false
+  })
+}
+

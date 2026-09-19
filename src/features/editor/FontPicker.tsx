@@ -1,4 +1,5 @@
-import { FONT_OPTIONS, fontFamilyCss, getFontOption } from '../../lib/fonts'
+import { useEffect } from 'react'
+import { FONT_OPTIONS, fontFamilyCss, getFontOption, preloadFonts } from '../../lib/fonts'
 import type { FontId } from '../../lib/fonts'
 import { fitPopover } from '../../lib/viewportClamp'
 import { TAP_HEIGHT } from '../../lib/touch'
@@ -29,6 +30,12 @@ function Check() {
 
 export function FontPicker({ fontId, open, onToggle, onChange }: FontPickerProps) {
   const label = getFontOption(fontId ?? undefined)?.label ?? 'System'
+  // This appears exactly when a text layer is selected. Start fetching every font now, so
+  // they're already loaded by the time the menu is opened (otherwise the names restyle one
+  // by one as their files arrive).
+  useEffect(() => {
+    preloadFonts()
+  }, [])
 
   return (
     <div className="relative">

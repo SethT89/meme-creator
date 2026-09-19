@@ -43,6 +43,8 @@ import {
 import type { Layer, TextLayer, ImageLayer, ImageBounds, ResizeSign, ReorderAction, TextStylePatch } from '../../lib/layers'
 import { renderCreationToBlob } from '../../lib/exportCanvas'
 import { fitToolbar } from '../../lib/viewportClamp'
+import { useMediaQuery } from '../../lib/useMediaQuery'
+import { useKeyboardInset } from '../../lib/useKeyboardInset'
 import type { RenderOptions } from '../../lib/exportCanvas'
 import { canShareFile, downloadBlob, isMobileOrTabletDevice, sanitizeFilename, shareFile } from '../../lib/exportDelivery'
 import { prepareImageForUpload } from '../../lib/imageUpload'
@@ -143,6 +145,11 @@ export function EditorPage() {
   const [dialogKey, setDialogKey] = useState(0)
   const [clearConfirmOpen, setClearConfirmOpen] = useState(false)
   const [pendingTemplate, setPendingTemplate] = useState<SelectedTemplate | null>(null)
+  // Below 640px (Tailwind's `sm`, where the layout switches to the mobile one) the text/image
+  // toolbar is a bar docked to the bottom of the screen instead of a pill floating over the
+  // selected layer — it doesn't chase the layer around, and it rides above the keyboard.
+  const isPhone = useMediaQuery('(max-width: 639px)')
+  const keyboardInset = useKeyboardInset()
   const [exporting, setExporting] = useState(false)
   // True from the moment Save is clicked until it fully finishes — including
   // rendering the preview and uploading it, which is most of the wait.
@@ -1112,7 +1119,7 @@ export function EditorPage() {
   return (
     // Stacked on a phone: the template toggle sits ABOVE the canvas instead of beside
     // it (side by side, the toggle's column took width and squeezed the canvas).
-    <div className="flex h-full flex-col gap-3 sm:flex-row sm:gap-6">
+    <div className="flex h-full flex-col gap-3 pb-20 sm:flex-row sm:gap-6 sm:pb-0">
       <TemplateSidebar selectedTemplateId={source?.type === 'template' ? source.templateId : undefined} onSelectTemplate={handleSelectTemplate} />
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -1313,6 +1320,23 @@ export function EditorPage() {
                   const isSelected = selectedFieldId === layer.id
                   const isEditing = editingLayerId === layer.id
                   const isCropping = layer.type === 'image' && cropTargetId === layer.id
+                  // The selected layer's toolbar, placed either in the phone dock or in the
+                  // floating wrapper below.
+                  const propertyBar =
+                    isSelected && !isCropping ? (
+                      <PropertyBar
+                        docked={isPhone}
+                        fontSize={layer.type === 'text' ? layer.fontSize : undefined}
+                        onChangeFontSize={layer.type === 'text' ? (px) => handleChangeFontSize(layer.id, px) : undefined}
+                        textStyle={layer.type === 'text' ? resolveTextStyle(layer) : undefined}
+                        onChangeTextStyle={layer.type === 'text' ? (patch) => handleChangeTextStyle(layer.id, patch) : undefined}
+                        onCrop={layer.type === 'image' ? () => handleEnterCropMode(layer) : undefined}
+                        onDelete={() => handleDeleteLayer(layer.id)}
+                        onReorder={(action) => handleReorderLayer(layer.id, action)}
+                        canMoveForward={layerIndex < layers.length - 1}
+                        canMoveBackward={layerIndex > 0}
+                      />
+                    ) : null
                   // Anything hanging off the canvas (after shrinking it, or a layer
                   // dragged partway out) is cropped to it, as export does.
                   const clipPath = layerClipPath(layer, activeCanvas)
@@ -1527,44 +1551,51 @@ export function EditorPage() {
                         </div>
                       )}
 
-                      {isSelected &&
-                        !isCropping &&
-                        propertyBarPos &&
-                        createPortal(
-                          <div
-                            // w-max: a fixed box otherwise shrink-wraps to the space
-                            // right of its own `left`, so the (wide) bar wrapped
-                            // into a narrow column for any layer far to the right.
-                            // The max-w caps it to the screen so it only wraps when
-                            // it genuinely can't fit.
-                            className="fixed z-50 w-max max-w-[calc(100vw-1rem)]"
-                            // Centered on its layer, so a layer near any screen edge would
-                            // push it off-screen; re-fitted on every render because the bar
-                            // moves with the layer.
-                            ref={(el) => fitToolbar(el)}
-                            style={{
-                              left: propertyBarPos.left,
-                              top: propertyBarPos.top,
-                              // Anchored to the field's own position — sits
-                              // just above the field, horizontally centered on it.
-                              transform: 'translate(-50%, calc(-100% - 8px))',
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <PropertyBar
-                              fontSize={layer.type === 'text' ? layer.fontSize : undefined}
-                              onChangeFontSize={layer.type === 'text' ? (px) => handleChangeFontSize(layer.id, px) : undefined}
-                              textStyle={layer.type === 'text' ? resolveTextStyle(layer) : undefined}
-                              onChangeTextStyle={layer.type === 'text' ? (patch) => handleChangeTextStyle(layer.id, patch) : undefined}
-                              onCrop={layer.type === 'image' ? () => handleEnterCropMode(layer) : undefined}
-                              onDelete={() => handleDeleteLayer(layer.id)}
-                              onReorder={(action) => handleReorderLayer(layer.id, action)}
-                              canMoveForward={layerIndex < layers.length - 1}
-                              canMoveBackward={layerIndex > 0}
-                            />
-                          </div>,
-                          document.body,
-                        )}
+                      {propertyBar &&
+                        (isPhone
+                          ? createPortal(
+                              // Phone: docked to the bottom edge, full width. Not anchored to the
+                              // layer, so it never covers or chases it. Lifted by the on-screen
+                              // keyboard's height (phone browsers don't move fixed elements up
+                              // themselves), and padded for the home-indicator area when the
+                              // keyboard is closed. z-20: above the canvas + button (z-10), below
+                              // the template drawer (z-30).
+                              <div
+                                data-property-dock
+                                className="fixed inset-x-0 z-20"
+                                style={{ bottom: keyboardInset, paddingBottom: keyboardInset > 0 ? 0 : 'env(safe-area-inset-bottom)' }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {propertyBar}
+                              </div>,
+                              document.body,
+                            )
+                          : propertyBarPos &&
+                            createPortal(
+                              <div
+                                // w-max: a fixed box otherwise shrink-wraps to the space
+                                // right of its own `left`, so the (wide) bar wrapped
+                                // into a narrow column for any layer far to the right.
+                                // The max-w caps it to the screen so it only wraps when
+                                // it genuinely can't fit.
+                                className="fixed z-50 w-max max-w-[calc(100vw-1rem)]"
+                                // Centered on its layer, so a layer near any screen edge would
+                                // push it off-screen; re-fitted on every render because the bar
+                                // moves with the layer.
+                                ref={(el) => fitToolbar(el)}
+                                style={{
+                                  left: propertyBarPos.left,
+                                  top: propertyBarPos.top,
+                                  // Anchored to the field's own position — sits
+                                  // just above the field, horizontally centered on it.
+                                  transform: 'translate(-50%, calc(-100% - 8px))',
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {propertyBar}
+                              </div>,
+                              document.body,
+                            ))}
                     </Fragment>
                   )
                 })}
@@ -1637,7 +1668,7 @@ export function EditorPage() {
       {toast && (
         <div
           role="status"
-          className={`fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full px-4 py-2 text-sm text-white shadow-lg ${
+          className={`fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-full px-4 py-2 text-sm text-white shadow-lg sm:bottom-6 ${
             toast.isError ? 'bg-red-600' : 'bg-neutral-900'
           }`}
         >

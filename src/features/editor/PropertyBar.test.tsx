@@ -90,7 +90,7 @@ describe('PropertyBar', () => {
     const onDelete = vi.fn()
     renderTextBar({ onDelete })
 
-    await userEvent.click(screen.getByText('Delete'))
+    await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
     expect(onDelete).toHaveBeenCalled()
   })
 
@@ -100,14 +100,14 @@ describe('PropertyBar', () => {
     expect(screen.queryByText(/size:/i)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Text color' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Text alignment' })).not.toBeInTheDocument()
-    expect(screen.getByText('Delete')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
   })
 
   it('Delete still works when text controls are hidden', async () => {
     const onDelete = vi.fn()
     render(<PropertyBar onDelete={onDelete} onReorder={() => {}} canMoveForward canMoveBackward />)
 
-    await userEvent.click(screen.getByText('Delete'))
+    await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
 
     expect(onDelete).toHaveBeenCalled()
   })
@@ -209,6 +209,84 @@ describe('PropertyBar', () => {
       expect(screen.getByRole('menu', { name: 'Text alignment options' })).toBeInTheDocument()
       await userEvent.click(screen.getByRole('button', { name: 'Text alignment' }))
       expect(screen.queryByRole('menu', { name: 'Text alignment options' })).not.toBeInTheDocument()
+    })
+  })
+
+  describe('icon buttons', () => {
+    // Layering and Delete are icons, not words, to keep the bar short — so each needs an
+    // accessible name (screen readers) and a tooltip (mouse hover) to stay understandable.
+    it.each(['Layering', 'Delete'])('%s is an icon button that is still named and has a tooltip', (name) => {
+      renderTextBar()
+      const button = screen.getByRole('button', { name })
+      expect(button.querySelector('svg')).not.toBeNull()
+      expect(button).toHaveAttribute('title', name)
+      expect(button.textContent).toBe('') // no visible word, just the icon
+    })
+
+    it('are also icon buttons on an image layer', () => {
+      render(<PropertyBar onCrop={() => {}} onDelete={() => {}} onReorder={() => {}} canMoveForward canMoveBackward />)
+      expect(screen.getByRole('button', { name: 'Layering' }).querySelector('svg')).not.toBeNull()
+      expect(screen.getByRole('button', { name: 'Delete' }).querySelector('svg')).not.toBeNull()
+    })
+
+    it('keep Delete red so it still reads as the destructive one', () => {
+      renderTextBar()
+      expect(screen.getByRole('button', { name: 'Delete' })).toHaveClass('text-red-400')
+    })
+  })
+
+  describe('docked to the bottom of a phone screen', () => {
+    it('is a full-width bar attached to the bottom edge (rounded on top only), not a floating pill', () => {
+      const { container } = render(<PropertyBar docked onDelete={() => {}} onReorder={() => {}} canMoveForward canMoveBackward />)
+      const bar = container.firstElementChild as HTMLElement
+      expect(bar).toHaveClass('w-full')
+      expect(bar).toHaveClass('rounded-t-2xl')
+      expect(bar).not.toHaveClass('rounded-3xl')
+    })
+
+    it('drops the thin divider lines between groups, to save width', () => {
+      const dividers = (el: HTMLElement) => el.querySelectorAll('.w-px').length
+      const floating = render(<PropertyBar fontSize={36} onChangeFontSize={() => {}} textStyle={textStyle} onChangeTextStyle={() => {}} onDelete={() => {}} onReorder={() => {}} canMoveForward canMoveBackward />)
+      expect(dividers(floating.container)).toBeGreaterThan(0)
+      floating.unmount()
+      const docked = render(<PropertyBar docked fontSize={36} onChangeFontSize={() => {}} textStyle={textStyle} onChangeTextStyle={() => {}} onDelete={() => {}} onReorder={() => {}} canMoveForward canMoveBackward />)
+      expect(dividers(docked.container)).toBe(0)
+    })
+
+    it('keeps every control, and they still work', async () => {
+      const onDelete = vi.fn()
+      const { onChangeTextStyle } = renderTextBar({ docked: true, onDelete })
+      expect(screen.getByRole('button', { name: 'Font: Anton' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: /^size:/i })).toBeInTheDocument()
+      await userEvent.click(screen.getByRole('button', { name: 'Text alignment' }))
+      await userEvent.click(screen.getByRole('menuitemradio', { name: 'Align left' }))
+      expect(onChangeTextStyle).toHaveBeenCalledWith({ textAlign: 'left' })
+      await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
+      expect(onDelete).toHaveBeenCalled()
+    })
+
+    it('shows the size as just its value ("36px") to save width, keeping the full "Size: Medium" for screen readers', () => {
+      renderTextBar({ docked: true })
+      const button = screen.getByRole('button', { name: 'Size: Medium' })
+      expect(button).toHaveTextContent('36px')
+      expect(button).not.toHaveTextContent(/size/i)
+    })
+
+    it('still opens the size menu from the compact button', async () => {
+      const { onChangeFontSize } = renderTextBar({ docked: true })
+      await userEvent.click(screen.getByRole('button', { name: 'Size: Medium' }))
+      await userEvent.click(screen.getByText('Large'))
+      expect(onChangeFontSize).toHaveBeenCalledWith(48)
+    })
+
+    it('leaves the floating bar\'s size button as it was', () => {
+      renderTextBar()
+      expect(screen.getByText(/size: medium/i)).toBeInTheDocument()
+    })
+
+    it('is not docked by default (the floating pill on larger screens is unchanged)', () => {
+      const { container } = render(<PropertyBar onDelete={() => {}} onReorder={() => {}} canMoveForward canMoveBackward />)
+      expect(container.firstElementChild).toHaveClass('rounded-3xl')
     })
   })
 

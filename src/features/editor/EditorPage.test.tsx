@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, within, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, within, fireEvent, waitFor, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -555,7 +555,7 @@ describe('EditorPage', () => {
     await userEvent.click(await screen.findByText('Two Buttons'))
     await userEvent.click(screen.getByText('Caption 1'))
 
-    await userEvent.click(screen.getByText('Delete'))
+    await userEvent.click(screen.getByRole('button', { name: 'Delete' }))
 
     expect(screen.queryByText('Caption 1')).not.toBeInTheDocument()
     expect(screen.getByText('Caption 2')).toBeInTheDocument()
@@ -615,6 +615,89 @@ describe('EditorPage', () => {
 
     await userEvent.click(screen.getByRole('img', { name: 'Two Buttons' }))
     expect(document.querySelectorAll(handleSelector)).toHaveLength(0)
+  })
+
+  describe('toolbar on a phone: docked to the bottom', () => {
+    // Below 640px the toolbar is a bar pinned to the bottom of the screen, not a pill that
+    // follows the selected caption around.
+    const stubPhone = (isPhone: boolean) => {
+      window.matchMedia = vi.fn((query: string) => ({
+        matches: isPhone && query === '(max-width: 639px)',
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      })) as unknown as typeof window.matchMedia
+    }
+    const dock = () => document.querySelector('[data-property-dock]') as HTMLElement | null
+    const fontButton = () => screen.queryByRole('button', { name: /^Font:/ })
+
+    afterEach(() => {
+      Reflect.deleteProperty(window, 'matchMedia')
+      Reflect.deleteProperty(window, 'visualViewport')
+    })
+
+    async function selectCaption() {
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+      await userEvent.click(await screen.findByText('Caption 1'))
+    }
+
+    it('pins the toolbar to the bottom edge of the screen, full width, not positioned by the caption', async () => {
+      stubPhone(true)
+      await selectCaption()
+      const bar = dock()!
+      expect(bar).not.toBeNull()
+      expect(bar).toHaveClass('fixed', 'inset-x-0')
+      expect(bar.style.bottom).toBe('0px')
+      expect(bar.style.left).toBe('') // nothing ties it to where the caption is
+      expect(bar.style.top).toBe('')
+      expect(within(bar).getByRole('button', { name: /^Font:/ })).toBeInTheDocument()
+    })
+
+    it('shows nothing until something is selected, and goes away again when it is deselected', async () => {
+      stubPhone(true)
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+      await screen.findByText('Caption 1')
+      expect(dock()).toBeNull()
+
+      await userEvent.click(screen.getByText('Caption 1'))
+      expect(dock()).not.toBeNull()
+
+      // tapping empty page space deselects
+      await userEvent.click(document.body)
+      expect(dock()).toBeNull()
+    })
+
+    it('leaves the floating toolbar exactly as it was on a larger screen', async () => {
+      stubPhone(false)
+      await selectCaption()
+      expect(dock()).toBeNull()
+      expect(fontButton()).toBeInTheDocument() // still there, floating over the caption
+    })
+
+    it('rides above the on-screen keyboard instead of being covered by it', async () => {
+      stubPhone(true)
+      Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true })
+      const viewport = new EventTarget() as EventTarget & { height: number; offsetTop: number; scale: number }
+      viewport.height = 800
+      viewport.offsetTop = 0
+      viewport.scale = 1
+      Object.defineProperty(window, 'visualViewport', { value: viewport, configurable: true })
+      await selectCaption()
+      expect(dock()!.style.bottom).toBe('0px')
+
+      act(() => {
+        viewport.height = 480 // the keyboard opened
+        viewport.dispatchEvent(new Event('resize'))
+      })
+      expect(dock()!.style.bottom).toBe('320px')
+
+      act(() => {
+        viewport.height = 800
+        viewport.dispatchEvent(new Event('resize'))
+      })
+      expect(dock()!.style.bottom).toBe('0px')
+    })
   })
 
   describe('double-tap to edit (touch)', () => {
@@ -1696,7 +1779,7 @@ describe('EditorPage', () => {
 
       await userEvent.click(img)
 
-      expect(screen.getByText('Delete')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
       expect(screen.getByText('Crop')).toBeInTheDocument()
       expect(screen.queryByText(/size:/i)).not.toBeInTheDocument()
       expect(screen.queryByText('Color')).not.toBeInTheDocument()
@@ -1744,7 +1827,7 @@ describe('EditorPage', () => {
 
       expect(img.parentElement).toHaveClass('border-dashed')
       expect(document.querySelectorAll('.border-blue-500.bg-white')).toHaveLength(8)
-      expect(screen.queryByText('Delete')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Delete' })).not.toBeInTheDocument()
     })
 
     it('a click anywhere outside the frame exits crop mode, accepting whatever was adjusted', async () => {
