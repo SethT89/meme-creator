@@ -1454,7 +1454,12 @@ export function EditorPage() {
                         propertyBarPos &&
                         createPortal(
                           <div
-                            className="fixed z-50"
+                            // w-max: a fixed box otherwise shrink-wraps to the space
+                            // right of its own `left`, so the (wide) bar wrapped
+                            // into a narrow column for any layer far to the right.
+                            // The max-w caps it to the screen so it only wraps when
+                            // it genuinely can't fit.
+                            className="fixed z-50 w-max max-w-[calc(100vw-1rem)]"
                             style={{
                               left: propertyBarPos.left,
                               top: propertyBarPos.top,
