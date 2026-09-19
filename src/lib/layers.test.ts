@@ -22,8 +22,12 @@ import {
   reorderLayer,
   resizeCanvas,
   layerClipPath,
+  resolveTextStyle,
+  textLayerCssStyle,
+  OUTLINE_WIDTH_EM,
 } from './layers'
-import type { Layer, ImageLayer } from './layers'
+import type { Layer, ImageLayer, TextLayer } from './layers'
+import { SYSTEM_FONT_STACK } from './fonts'
 
 describe('SIZE_PRESETS', () => {
   it('defines five presets in ascending px order', () => {
@@ -69,8 +73,8 @@ const mockFields = [
 describe('initialLayersFromFields', () => {
   it('maps template_fields rows into layers, preserving order, converting snake_case to camelCase, and defaulting heightAuto to true', () => {
     expect(initialLayersFromFields(mockFields)).toEqual([
-      { type: 'text', id: 'f1', label: 'Caption 1', x: 30, y: 50, width: 220, height: 110, fontSize: 22, heightAuto: true },
-      { type: 'text', id: 'f2', label: 'Caption 2', x: 310, y: 70, width: 220, height: 110, fontSize: 22, heightAuto: true },
+      { type: 'text', id: 'f1', label: 'Caption 1', x: 30, y: 50, width: 220, height: 110, fontSize: 22, heightAuto: true, fontFamily: 'anton' },
+      { type: 'text', id: 'f2', label: 'Caption 2', x: 310, y: 70, width: 220, height: 110, fontSize: 22, heightAuto: true, fontFamily: 'anton' },
     ])
   })
 
@@ -86,6 +90,7 @@ describe('createBlankTextLayer', () => {
     expect(layer.label).toBe('')
     expect(layer.fontSize).toBe(36)
     expect(layer.heightAuto).toBe(true)
+    expect(layer.fontFamily).toBe('anton')
     expect(layer.width).toBe(240) // 40% of image width
     expect(layer.x).toBe((600 - layer.width) / 2) // horizontally centered
     expect(layer.y).toBe((908 - layer.height) / 2) // vertically centered
@@ -152,6 +157,8 @@ describe('layersFromCanvasData', () => {
     const [layer] = layersFromCanvasData(saved, fallbackFields)
     expect(layer.type).toBe('text')
     expect((layer as { heightAuto: boolean }).heightAuto).toBe(true)
+    // Saved before fonts existed: stays on the legacy system font, not Anton.
+    expect((layer as TextLayer).fontFamily).toBeUndefined()
   })
 
   it('leaves an already-saved image layer alone — no text defaults forced onto it', () => {
@@ -557,5 +564,64 @@ describe('layerClipPath', () => {
   it('needs no layer height to work, so an auto-height text box is clipped the same way', () => {
     const text: Layer = { type: 'text', id: 't', label: 'hi', x: -30, y: 5, width: 100, height: 54, fontSize: 30, heightAuto: true }
     expect(layerClipPath(text, canvas)).toMatch(/10cqw\)$/)
+  })
+})
+
+describe('resolveTextStyle', () => {
+  const base: TextLayer = { type: 'text', id: 't', label: '', x: 0, y: 0, width: 10, height: 10, fontSize: 20, heightAuto: true }
+
+  it("resolves a layer with none of the style fields to today's exact look (system bold, white, black outline, centered)", () => {
+    expect(resolveTextStyle(base)).toEqual({
+      fontId: null,
+      fontFamily: SYSTEM_FONT_STACK,
+      fontWeight: 700,
+      color: '#ffffff',
+      strokeColor: '#000000',
+      textAlign: 'center',
+    })
+  })
+
+  it('resolves a chosen font to its family (with the system stack as fallback) and fixed weight', () => {
+    const style = resolveTextStyle({ ...base, fontFamily: 'inter' })
+    expect(style.fontId).toBe('inter')
+    expect(style.fontFamily).toBe(`"Inter", ${SYSTEM_FONT_STACK}`)
+    expect(style.fontWeight).toBe(700)
+    expect(resolveTextStyle({ ...base, fontFamily: 'bangers' }).fontWeight).toBe(400)
+  })
+
+  it('treats an unknown saved font id like no font (legacy look) instead of crashing', () => {
+    const style = resolveTextStyle({ ...base, fontFamily: 'gone-font' as unknown as TextLayer['fontFamily'] })
+    expect(style.fontId).toBeNull()
+    expect(style.fontFamily).toBe(SYSTEM_FONT_STACK)
+  })
+
+  it('applies color and textAlign overrides independently', () => {
+    expect(resolveTextStyle({ ...base, color: '#ff0000' }).color).toBe('#ff0000')
+    expect(resolveTextStyle({ ...base, textAlign: 'left' }).textAlign).toBe('left')
+    expect(resolveTextStyle({ ...base, textAlign: 'left' }).color).toBe('#ffffff')
+  })
+
+  it('distinguishes "no outline" (null) from "never set" (undefined → black)', () => {
+    expect(resolveTextStyle({ ...base, strokeColor: null }).strokeColor).toBeNull()
+    expect(resolveTextStyle({ ...base, strokeColor: '#00ff00' }).strokeColor).toBe('#00ff00')
+    expect(resolveTextStyle({ ...base }).strokeColor).toBe('#000000')
+  })
+})
+
+describe('textLayerCssStyle', () => {
+  const base: TextLayer = { type: 'text', id: 't', label: '', x: 0, y: 0, width: 10, height: 10, fontSize: 20, heightAuto: true }
+
+  it('turns a resolved style into the inline CSS the on-screen layer box uses', () => {
+    expect(textLayerCssStyle({ ...base, fontFamily: 'anton', color: '#ff0000', strokeColor: '#0000ff', textAlign: 'right' })).toEqual({
+      fontFamily: `"Anton", ${SYSTEM_FONT_STACK}`,
+      fontWeight: 400,
+      color: '#ff0000',
+      textAlign: 'right',
+      WebkitTextStroke: `${OUTLINE_WIDTH_EM}em #0000ff`,
+    })
+  })
+
+  it('drops the stroke entirely when the outline is none', () => {
+    expect(textLayerCssStyle({ ...base, strokeColor: null }).WebkitTextStroke).toBe('0')
   })
 })

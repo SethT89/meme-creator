@@ -1,3 +1,6 @@
+import { DEFAULT_FONT_ID, SYSTEM_FONT_WEIGHT, fontFamilyCss, getFontOption } from './fonts'
+import type { FontId } from './fonts'
+
 interface BaseLayer {
   id: string
   x: number
@@ -5,6 +8,8 @@ interface BaseLayer {
   width: number
   height: number
 }
+
+export type TextAlign = 'left' | 'center' | 'right'
 
 export interface TextLayer extends BaseLayer {
   type: 'text'
@@ -16,6 +21,16 @@ export interface TextLayer extends BaseLayer {
   // drags the resize handle, at which point their chosen height is fixed
   // and text wraps/clips within it like any ordinary text box.
   heightAuto: boolean
+  // The four style fields below are all optional so that every creation
+  // saved before they existed still loads and renders exactly as it did:
+  // read them ONLY through resolveTextStyle, which owns the defaults.
+  fontFamily?: FontId
+  // Fill color, '#rrggbb'.
+  color?: string
+  // Outline color, '#rrggbb'. null means no outline; undefined means "never
+  // set", which resolves to black (the original look) — the two differ.
+  strokeColor?: string | null
+  textAlign?: TextAlign
 }
 
 export interface ImageLayer extends BaseLayer {
@@ -39,6 +54,55 @@ export interface ImageLayer extends BaseLayer {
 }
 
 export type Layer = TextLayer | ImageLayer
+
+export const DEFAULT_TEXT_COLOR = '#ffffff'
+export const DEFAULT_STROKE_COLOR = '#000000'
+// Outline thickness as a fraction of the font size. In `em` on screen (so it
+// scales with the container-query font size) and multiplied by the font size
+// in the canvas exporter, so both draw the same stroke.
+export const OUTLINE_WIDTH_EM = 0.24
+
+export interface ResolvedTextStyle {
+  // null = legacy system font (no/unknown fontFamily on the layer).
+  fontId: FontId | null
+  // A ready-to-use CSS font-family value, fallback stack included.
+  fontFamily: string
+  fontWeight: number
+  color: string
+  strokeColor: string | null
+  textAlign: TextAlign
+}
+
+export type TextStylePatch = Partial<Pick<TextLayer, 'fontFamily' | 'color' | 'strokeColor' | 'textAlign'>>
+
+// The single place text-style defaults live. The on-screen box, the canvas
+// exporter and the toolbar all read a layer through this, so they cannot
+// disagree about what an unstyled (legacy) layer looks like.
+export function resolveTextStyle(layer: TextLayer): ResolvedTextStyle {
+  const font = getFontOption(layer.fontFamily)
+  return {
+    fontId: font?.id ?? null,
+    fontFamily: fontFamilyCss(font),
+    fontWeight: font?.weight ?? SYSTEM_FONT_WEIGHT,
+    color: layer.color ?? DEFAULT_TEXT_COLOR,
+    strokeColor: layer.strokeColor === undefined ? DEFAULT_STROKE_COLOR : layer.strokeColor,
+    textAlign: layer.textAlign ?? 'center',
+  }
+}
+
+// Inline CSS for a text layer's on-screen box. paint-order (stroke behind
+// fill, so the outline doesn't thin the letterforms) stays a class in
+// EditorPage since it never varies.
+export function textLayerCssStyle(layer: TextLayer) {
+  const style = resolveTextStyle(layer)
+  return {
+    fontFamily: style.fontFamily,
+    fontWeight: style.fontWeight,
+    color: style.color,
+    textAlign: style.textAlign,
+    WebkitTextStroke: style.strokeColor ? `${OUTLINE_WIDTH_EM}em ${style.strokeColor}` : '0',
+  }
+}
 
 // Effective crop rectangle for a layer, as fractions of its natural size —
 // resolves the "undefined means the whole image" default described above so
@@ -200,6 +264,7 @@ export function initialLayersFromFields(fields: TemplateFieldRow[]): Layer[] {
     height: f.height,
     fontSize: f.font_size,
     heightAuto: true,
+    fontFamily: DEFAULT_FONT_ID,
   }))
 }
 
@@ -223,6 +288,7 @@ export function createBlankTextLayer(imageWidth: number, imageHeight: number): T
     height,
     fontSize,
     heightAuto: true,
+    fontFamily: DEFAULT_FONT_ID,
   }
 }
 
