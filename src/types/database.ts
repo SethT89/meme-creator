@@ -149,6 +149,7 @@ export type Database = {
           image_width: number
           name: string
           tags: string[]
+          thumbnail_url: string | null
         }
         Insert: {
           blank_image_url: string
@@ -161,6 +162,7 @@ export type Database = {
           image_width: number
           name: string
           tags?: string[]
+          thumbnail_url?: string | null
         }
         Update: {
           blank_image_url?: string
@@ -173,6 +175,7 @@ export type Database = {
           image_width?: number
           name?: string
           tags?: string[]
+          thumbnail_url?: string | null
         }
         Relationships: []
       }

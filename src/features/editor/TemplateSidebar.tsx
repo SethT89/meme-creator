@@ -125,7 +125,12 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
             <div className="flex w-full items-center gap-3">
               <span
                 className="h-14 w-14 shrink-0 rounded bg-muted bg-cover bg-center"
-                style={{ backgroundImage: `url(${t.blank_image_url})` }}
+                // The 56px card shows a small thumbnail (~5 KB), not the full
+                // image (~160 KB+): the list loads every template at once, so
+                // this is what keeps visitors' data use (Supabase egress) low
+                // as the library grows. Templates without one yet fall back to
+                // the full image. The canvas still loads the full image on pick.
+                style={{ backgroundImage: `url(${t.thumbnail_url ?? t.blank_image_url})` }}
               />
               {t.name}
             </div>

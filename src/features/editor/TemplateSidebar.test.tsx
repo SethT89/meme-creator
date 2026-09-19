@@ -13,6 +13,7 @@ const mockTemplates = [
     image_height: 908,
     description: 'The Two Buttons meme shows two difficult decisions.',
     tags: ['choice'],
+    thumbnail_url: 'https://example.com/thumbs/two-buttons.jpg',
   },
   { id: 't2', name: 'Drake', blank_image_url: 'https://example.com/drake.jpg', image_width: 500, image_height: 500, description: null, tags: ['approval'] },
   {
@@ -53,6 +54,27 @@ describe('TemplateSidebar', () => {
     const names = (await screen.findAllByRole('button', { name: /Two Buttons|Drake|Chicken/ })).map((el) => el.textContent)
     // Drake has the usage; the other two have none and fall back to A-Z.
     expect(names).toEqual(['Drake', 'Skydiving Chicken', 'Two Buttons'])
+  })
+
+  it('shows each card\'s small thumbnail, not the full-size image, so the list stays light', async () => {
+    renderWithQuery(<TemplateSidebar selectedTemplateId={undefined} onSelectTemplate={vi.fn()} />)
+    const card = await screen.findByRole('button', { name: 'Two Buttons' })
+    const image = card.querySelector('span')!.style.backgroundImage
+    expect(image).toContain('https://example.com/thumbs/two-buttons.jpg')
+    expect(image).not.toContain('https://example.com/two-buttons.jpg') // that's the full-size image
+  })
+
+  it('falls back to the full image for a template that has no thumbnail yet', async () => {
+    renderWithQuery(<TemplateSidebar selectedTemplateId={undefined} onSelectTemplate={vi.fn()} />)
+    const card = await screen.findByRole('button', { name: 'Drake' })
+    expect(card.querySelector('span')!.style.backgroundImage).toContain('https://example.com/drake.jpg')
+  })
+
+  it('still loads the full-size image on the canvas when a template is picked (only the list uses thumbnails)', async () => {
+    const onSelectTemplate = vi.fn()
+    renderWithQuery(<TemplateSidebar selectedTemplateId={undefined} onSelectTemplate={onSelectTemplate} />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Two Buttons' }))
+    expect(onSelectTemplate).toHaveBeenCalledWith(expect.objectContaining({ blankImageUrl: 'https://example.com/two-buttons.jpg' }))
   })
 
   it('calls onSelectTemplate with the real template row when a row is clicked', async () => {
