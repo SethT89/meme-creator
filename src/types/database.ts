@@ -116,16 +116,19 @@ export type Database = {
           created_at: string
           id: string
           template_id: string
+          user_id: string
         }
         Insert: {
           created_at?: string
           id?: string
           template_id: string
+          user_id?: string
         }
         Update: {
           created_at?: string
           id?: string
           template_id?: string
+          user_id?: string
         }
         Relationships: [
           {
@@ -147,9 +150,12 @@ export type Database = {
           id: string
           image_height: number
           image_width: number
+          last_used_at: string | null
           name: string
           tags: string[]
           thumbnail_url: string | null
+          use_count_7d: number
+          use_count_total: number
         }
         Insert: {
           blank_image_url: string
@@ -160,9 +166,12 @@ export type Database = {
           id?: string
           image_height: number
           image_width: number
+          last_used_at?: string | null
           name: string
           tags?: string[]
           thumbnail_url?: string | null
+          use_count_7d?: number
+          use_count_total?: number
         }
         Update: {
           blank_image_url?: string
@@ -173,9 +182,12 @@ export type Database = {
           id?: string
           image_height?: number
           image_width?: number
+          last_used_at?: string | null
           name?: string
           tags?: string[]
           thumbnail_url?: string | null
+          use_count_7d?: number
+          use_count_total?: number
         }
         Relationships: []
       }
