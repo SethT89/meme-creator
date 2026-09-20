@@ -44,17 +44,30 @@ export function useTemplatesByUsage() {
   })
 }
 
+type UsageEventKind = 'pick' | 'save' | 'export'
+
+// A null template means the work did not use one (freeform). Saves are logged by a database
+// trigger on `creations`, so app code only logs picks and exports.
+async function insertUsageEvent(kind: UsageEventKind, templateId: string | null) {
+  const { error } = await supabase
+    .from('template_usage_events')
+    .insert({ template_id: templateId, kind, user_id: getCurrentUserId() })
+  if (error) throw error
+}
+
 export function useLogTemplateUsage() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (templateId: string) => {
-      const { error } = await supabase
-        .from('template_usage_events')
-        .insert({ template_id: templateId, user_id: getCurrentUserId() })
-      if (error) throw error
-    },
+    mutationFn: (templateId: string) => insertUsageEvent('pick', templateId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['templates', 'by-usage'] })
     },
+  })
+}
+
+// Logs a completed export. Nothing on screen depends on it, so no cache invalidation.
+export function useLogExport() {
+  return useMutation({
+    mutationFn: (templateId: string | null) => insertUsageEvent('export', templateId),
   })
 }

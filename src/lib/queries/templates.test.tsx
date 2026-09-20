@@ -3,7 +3,7 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { CURRENT_USER_ID } from '../currentUser'
-import { useTemplates, useTemplateFields, useTemplatesByUsage, useLogTemplateUsage } from './templates'
+import { useTemplates, useTemplateFields, useTemplatesByUsage, useLogTemplateUsage, useLogExport } from './templates'
 
 const mockFields = [
   { id: 'f1', template_id: 'tmpl-1', label: 'Caption 1', order_index: 0 },
@@ -112,6 +112,22 @@ describe('useLogTemplateUsage', () => {
     const { result } = renderHook(() => useLogTemplateUsage(), { wrapper })
     result.current.mutate('t1')
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(lastUsageInsert).toEqual({ template_id: 't1', user_id: CURRENT_USER_ID })
+    expect(lastUsageInsert).toEqual({ template_id: 't1', kind: 'pick', user_id: CURRENT_USER_ID })
+  })
+})
+
+describe('useLogExport', () => {
+  it('inserts an export event for the template that was exported', async () => {
+    const { result } = renderHook(() => useLogExport(), { wrapper })
+    result.current.mutate('t1')
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(lastUsageInsert).toEqual({ template_id: 't1', kind: 'export', user_id: CURRENT_USER_ID })
+  })
+
+  it('inserts an export event with no template for freeform work', async () => {
+    const { result } = renderHook(() => useLogExport(), { wrapper })
+    result.current.mutate(null)
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(lastUsageInsert).toEqual({ template_id: null, kind: 'export', user_id: CURRENT_USER_ID })
   })
 })
