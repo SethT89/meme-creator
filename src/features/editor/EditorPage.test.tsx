@@ -68,7 +68,17 @@ vi.mock('../../lib/supabase', () => ({
   supabase: {
     from: (table: string) => {
       if (table === 'templates') {
-        return { select: () => Promise.resolve({ data: [mockTemplate, mockFieldlessTemplate], error: null }) }
+        // Awaitable AND chainable: `useTemplates` awaits `.select()`, `useTemplatesByUsage` adds `.order()`s.
+        return {
+          select: () => {
+            const query = {
+              order: () => query,
+              then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
+                Promise.resolve({ data: [mockTemplate, mockFieldlessTemplate], error: null }).then(resolve, reject),
+            }
+            return query
+          },
+        }
       }
       if (table === 'template_fields') {
         return {
@@ -80,10 +90,7 @@ vi.mock('../../lib/supabase', () => ({
         }
       }
       if (table === 'template_usage_events') {
-        return {
-          select: () => Promise.resolve({ data: [], error: null }),
-          insert: () => Promise.resolve({ error: null }),
-        }
+        return { insert: () => Promise.resolve({ error: null }) }
       }
       // creations
       return {

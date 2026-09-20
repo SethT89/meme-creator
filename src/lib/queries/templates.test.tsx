@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
+import { CURRENT_USER_ID } from '../currentUser'
 import { useTemplates, useTemplateFields, useTemplatesByUsage, useLogTemplateUsage } from './templates'
 
 const mockFields = [
@@ -111,6 +112,6 @@ describe('useLogTemplateUsage', () => {
     const { result } = renderHook(() => useLogTemplateUsage(), { wrapper })
     result.current.mutate('t1')
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(lastUsageInsert).toMatchObject({ template_id: 't1' })
+    expect(lastUsageInsert).toEqual({ template_id: 't1', user_id: CURRENT_USER_ID })
   })
 })

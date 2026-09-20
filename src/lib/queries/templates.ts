@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../supabase'
+import { getCurrentUserId } from '../currentUser'
 
 export function useTemplates() {
   return useQuery({
@@ -47,7 +48,9 @@ export function useLogTemplateUsage() {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: async (templateId: string) => {
-      const { error } = await supabase.from('template_usage_events').insert({ template_id: templateId })
+      const { error } = await supabase
+        .from('template_usage_events')
+        .insert({ template_id: templateId, user_id: getCurrentUserId() })
       if (error) throw error
     },
     onSuccess: () => {

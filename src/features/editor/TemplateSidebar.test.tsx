@@ -18,7 +18,7 @@ const mockTemplates = [
     tags: ['choice'],
     thumbnail_url: 'https://example.com/thumbs/two-buttons.jpg',
   },
-  { id: 't2', name: 'Drake', blank_image_url: 'https://example.com/drake.jpg', image_width: 500, image_height: 500, description: null, tags: ['approval'] },
+  { id: 't2', name: 'Drake', blank_image_url: 'https://example.com/drake.jpg', image_width: 500, image_height: 500, description: null, tags: ['approval'], use_count_total: 2 },
   {
     id: 't3',
     name: 'Skydiving Chicken',
@@ -29,19 +29,40 @@ const mockTemplates = [
     tags: ['random', 'animals'],
   },
 ]
-// Two clicks on Drake, none on Two Buttons — Drake should render first.
-const mockUsageEvents = [{ template_id: 't2' }, { template_id: 't2' }]
+// Drake has two clicks (use_count_total), the others none — Drake should render first.
+// Stand-in for a Supabase `templates` query: applies the `.order(...)` calls it receives the
+// way the database would, so the test proves the sidebar asks for the right sort.
+function templatesQuery() {
+  const orders: Array<[string, { ascending: boolean }]> = []
+  const query = {
+    order: (column: string, options: { ascending: boolean }) => {
+      orders.push([column, options])
+      return query
+    },
+    then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) => {
+      const rows = [...mockTemplates] as Array<Record<string, unknown>>
+      rows.sort((a, b) => {
+        for (const [column, { ascending }] of orders) {
+          const av = (a[column] ?? 0) as number | string
+          const bv = (b[column] ?? 0) as number | string
+          const cmp = typeof av === 'string' ? av.localeCompare(bv as string) : av - (bv as number)
+          if (cmp !== 0) return ascending ? cmp : -cmp
+        }
+        return 0
+      })
+      return Promise.resolve({ data: rows, error: null }).then(resolve, reject)
+    },
+  }
+  return query
+}
 
 vi.mock('../../lib/supabase', () => ({
   supabase: {
     from: (table: string) => {
       if (table === 'template_usage_events') {
-        return {
-          select: () => Promise.resolve({ data: mockUsageEvents, error: null }),
-          insert: () => Promise.resolve({ error: null }),
-        }
+        return { insert: () => Promise.resolve({ error: null }) }
       }
-      return { select: () => Promise.resolve({ data: mockTemplates, error: null }) }
+      return { select: () => templatesQuery() }
     },
   },
 }))
