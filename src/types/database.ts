@@ -115,19 +115,22 @@ export type Database = {
         Row: {
           created_at: string
           id: string
-          template_id: string
+          kind: string
+          template_id: string | null
           user_id: string
         }
         Insert: {
           created_at?: string
           id?: string
-          template_id: string
+          kind?: string
+          template_id?: string | null
           user_id?: string
         }
         Update: {
           created_at?: string
           id?: string
-          template_id?: string
+          kind?: string
+          template_id?: string | null
           user_id?: string
         }
         Relationships: [
@@ -147,11 +150,13 @@ export type Database = {
           created_by: string
           description: string | null
           example_image_url: string
+          export_count: number
           id: string
           image_height: number
           image_width: number
           last_used_at: string | null
           name: string
+          save_count: number
           tags: string[]
           thumbnail_url: string | null
           use_count_7d: number
@@ -163,11 +168,13 @@ export type Database = {
           created_by?: string
           description?: string | null
           example_image_url: string
+          export_count?: number
           id?: string
           image_height: number
           image_width: number
           last_used_at?: string | null
           name: string
+          save_count?: number
           tags?: string[]
           thumbnail_url?: string | null
           use_count_7d?: number
@@ -179,11 +186,13 @@ export type Database = {
           created_by?: string
           description?: string | null
           example_image_url?: string
+          export_count?: number
           id?: string
           image_height?: number
           image_width?: number
           last_used_at?: string | null
           name?: string
+          save_count?: number
           tags?: string[]
           thumbnail_url?: string | null
           use_count_7d?: number
