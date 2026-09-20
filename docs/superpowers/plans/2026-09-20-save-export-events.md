@@ -16,7 +16,7 @@
 
 ## File Structure
 
-- Create: `supabase/migrations/20260920210000_save_export_events.sql` — schema, replaced triggers/functions, creations save trigger. (Renamed to the recorded version after applying.)
+- Create: `supabase/migrations/20260920204342_save_export_events.sql` — schema, replaced triggers/functions, creations save trigger. (Renamed to the recorded version after applying.)
 - Modify: `supabase/maintenance/reset-template-usage.sql` — also zero the two new counters.
 - Modify: `src/types/database.ts` — new columns, nullable `template_id`.
 - Modify: `src/lib/queries/templates.ts` — shared event insert, `event_type` on click logging, new `useLogExport`.
@@ -31,7 +31,7 @@ Work on a branch: `git checkout -b save-export-events` (never implement on `main
 ### Task 1: Write the migration
 
 **Files:**
-- Create: `supabase/migrations/20260920210000_save_export_events.sql`
+- Create: `supabase/migrations/20260920204342_save_export_events.sql`
 
 - [ ] **Step 1: Create the migration file with this exact content**
 
@@ -139,7 +139,7 @@ create trigger creations_log_save_event
 - [ ] **Step 2: Commit**
 
 ```bash
-git add supabase/migrations/20260920210000_save_export_events.sql
+git add supabase/migrations/20260920204342_save_export_events.sql
 git commit -m "feat: migration for save/export usage events and freeform (no-template) tracking
 
 Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
