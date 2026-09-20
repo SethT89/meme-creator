@@ -16,7 +16,7 @@
 
 ## File Structure
 
-- Create: `supabase/migrations/20260920180000_template_usage_counters.sql` — all schema changes, trigger, cron job, backfill.
+- Create: `supabase/migrations/20260920195906_template_usage_counters.sql` — all schema changes, trigger, cron job, backfill.
 - Create: `supabase/maintenance/reset-template-usage.sql` — manual pre-launch wipe. **Not** a migration; never runs automatically.
 - Modify: `src/types/database.ts` — new columns on `templates` and `template_usage_events`.
 - Modify: `src/lib/queries/templates.ts` — `useTemplatesByUsage` reads `templates` ordered by counter; `useLogTemplateUsage` sends `user_id`.
@@ -28,7 +28,7 @@
 ### Task 1: Write the migration
 
 **Files:**
-- Create: `supabase/migrations/20260920180000_template_usage_counters.sql`
+- Create: `supabase/migrations/20260920195906_template_usage_counters.sql`
 
 - [ ] **Step 1: Create the migration file with this exact content**
 
@@ -118,7 +118,7 @@ select cron.schedule(
 - [ ] **Step 2: Commit**
 
 ```bash
-git add supabase/migrations/20260920180000_template_usage_counters.sql
+git add supabase/migrations/20260920195906_template_usage_counters.sql
 git commit -m "feat: migration for cached template usage counters and per-user event capture
 
 Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
