@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../supabase'
-import { sortTemplatesByUsage } from '../templateUsage'
 
 export function useTemplates() {
   return useQuery({
@@ -33,13 +32,13 @@ export function useTemplatesByUsage() {
   return useQuery({
     queryKey: ['templates', 'by-usage'],
     queryFn: async () => {
-      const [templatesRes, usageRes] = await Promise.all([
-        supabase.from('templates').select('*'),
-        supabase.from('template_usage_events').select('template_id'),
-      ])
-      if (templatesRes.error) throw templatesRes.error
-      if (usageRes.error) throw usageRes.error
-      return sortTemplatesByUsage(templatesRes.data, usageRes.data)
+      const { data, error } = await supabase
+        .from('templates')
+        .select('*')
+        .order('use_count_total', { ascending: false })
+        .order('name', { ascending: true })
+      if (error) throw error
+      return data
     },
   })
 }

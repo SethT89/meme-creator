@@ -12,9 +12,24 @@ const mockTemplates = [
   { id: 't1', name: 'Two Buttons' },
   { id: 't2', name: 'Drake' },
 ]
-const mockUsageEvents = [{ template_id: 't2' }, { template_id: 't2' }]
 
 let lastUsageInsert: unknown
+let lastTemplateOrders: Array<[string, unknown]> = []
+let usageEventsSelected = false
+
+// Awaitable, chainable stand-in for a Supabase `templates` query: `useTemplates` awaits
+// `.select('*')` directly, `useTemplatesByUsage` chains `.order(...)` first.
+function templatesQuery() {
+  const query = {
+    order: (column: string, options: unknown) => {
+      lastTemplateOrders.push([column, options])
+      return query
+    },
+    then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
+      Promise.resolve({ data: mockTemplates, error: null }).then(resolve, reject),
+  }
+  return query
+}
 
 vi.mock('../supabase', () => ({
   supabase: {
@@ -30,7 +45,10 @@ vi.mock('../supabase', () => ({
       }
       if (table === 'template_usage_events') {
         return {
-          select: () => Promise.resolve({ data: mockUsageEvents, error: null }),
+          select: () => {
+            usageEventsSelected = true
+            return Promise.resolve({ data: [], error: null })
+          },
           insert: (values: unknown) => {
             lastUsageInsert = values
             return Promise.resolve({ error: null })
@@ -39,7 +57,7 @@ vi.mock('../supabase', () => ({
       }
       // templates
       return {
-        select: () => Promise.resolve({ data: mockTemplates, error: null }),
+        select: () => templatesQuery(),
       }
     },
   },
@@ -74,10 +92,17 @@ describe('useTemplateFields', () => {
 })
 
 describe('useTemplatesByUsage', () => {
-  it('returns templates sorted by usage event count descending', async () => {
+  it('orders templates by the cached all-time counter, then name, without reading events', async () => {
+    lastTemplateOrders = []
+    usageEventsSelected = false
     const { result } = renderHook(() => useTemplatesByUsage(), { wrapper })
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(result.current.data?.map((t) => t.id)).toEqual(['t2', 't1'])
+    expect(lastTemplateOrders).toEqual([
+      ['use_count_total', { ascending: false }],
+      ['name', { ascending: true }],
+    ])
+    expect(usageEventsSelected).toBe(false)
+    expect(result.current.data).toEqual(mockTemplates)
   })
 })
 
