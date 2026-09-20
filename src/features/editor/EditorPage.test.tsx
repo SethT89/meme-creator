@@ -63,7 +63,7 @@ const { mockStorageUpload, usageInserts } = vi.hoisted(() => ({
       Promise.resolve({ data: { path: 'mock-path' }, error: null }),
   ),
   // Every row inserted into template_usage_events (template picks and exports alike).
-  usageInserts: [] as Array<{ template_id: string | null; kind: string }>,
+  usageInserts: [] as Array<{ template_id: string | null; event_type: string }>,
 }))
 
 vi.mock('../../lib/supabase', () => ({
@@ -93,7 +93,7 @@ vi.mock('../../lib/supabase', () => ({
       }
       if (table === 'template_usage_events') {
         return {
-          insert: (values: { template_id: string | null; kind: string }) => {
+          insert: (values: { template_id: string | null; event_type: string }) => {
             usageInserts.push(values)
             return Promise.resolve({ error: null })
           },
@@ -1833,7 +1833,7 @@ describe('EditorPage', () => {
       Reflect.deleteProperty(HTMLImageElement.prototype, 'decode')
     })
 
-    const exportEvents = () => usageInserts.filter((event) => event.kind === 'export')
+    const exportEvents = () => usageInserts.filter((event) => event.event_type === 'export')
 
     it('waits for the full-size template image to finish loading before rendering, so a quick click never exports a blank template', async () => {
       let finishLoading!: () => void
@@ -1964,7 +1964,7 @@ describe('EditorPage', () => {
 
       await userEvent.click(screen.getByRole('button', { name: 'Export' }))
 
-      await waitFor(() => expect(exportEvents()).toEqual([expect.objectContaining({ template_id: 'tmpl-1', kind: 'export' })]))
+      await waitFor(() => expect(exportEvents()).toEqual([expect.objectContaining({ template_id: 'tmpl-1', event_type: 'export' })]))
     })
 
     it('logs an export event once a native share completes', async () => {
@@ -2015,7 +2015,7 @@ describe('EditorPage', () => {
 
       await userEvent.click(screen.getByRole('button', { name: 'Export' }))
 
-      await waitFor(() => expect(exportEvents()).toEqual([expect.objectContaining({ template_id: null, kind: 'export' })]))
+      await waitFor(() => expect(exportEvents()).toEqual([expect.objectContaining({ template_id: null, event_type: 'export' })]))
     })
   })
 

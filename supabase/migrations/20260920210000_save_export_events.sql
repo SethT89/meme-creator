@@ -3,24 +3,24 @@
 -- Spec: docs/superpowers/specs/2026-09-20-save-export-events-design.md
 -- Builds on 20260920195906_template_usage_counters.
 --
--- Backward compatible: the deployed app inserts click events without `kind`
+-- Backward compatible: the deployed app inserts click events without `event_type`
 -- (defaults to 'pick') and never reads events, so it keeps working unchanged.
 -- ---------------------------------------------------------------------------
 
--- What happened. text + check (not an enum) so adding a kind later is a one-line change.
+-- What happened. text + check (not an enum) so adding an event type later is a one-line change.
 alter table template_usage_events
-  add column kind text not null default 'pick',
-  add constraint template_usage_events_kind_check check (kind in ('pick', 'save', 'export'));
+  add column event_type text not null default 'pick',
+  add constraint template_usage_events_event_type_check check (event_type in ('pick', 'save', 'export'));
 
 -- Empty template_id = the work did not use a template (freeform). The FK keeps
 -- `on delete cascade` on purpose: `set null` would relabel a deleted template's
 -- history as freeform activity.
 alter table template_usage_events alter column template_id drop not null;
 
-create index template_usage_events_kind_template_idx
-  on template_usage_events (kind, template_id);
+create index template_usage_events_event_type_template_idx
+  on template_usage_events (event_type, template_id);
 
-comment on column template_usage_events.kind is 'pick = clicked a template, save = a new creation was saved (Save / Save As, not a re-save), export = a completed download/share.';
+comment on column template_usage_events.event_type is 'pick = clicked a template, save = a new creation was saved (Save / Save As, not a re-save), export = a completed download/share.';
 comment on column template_usage_events.template_id is 'Null = the work did not use a template (freeform).';
 
 alter table templates
@@ -43,15 +43,15 @@ begin
     return new;
   end if;
 
-  if new.kind = 'pick' then
+  if new.event_type = 'pick' then
     update public.templates
        set use_count_total = use_count_total + 1,
            use_count_7d    = use_count_7d + case when new.created_at > now() - interval '7 days' then 1 else 0 end,
            last_used_at    = greatest(coalesce(last_used_at, new.created_at), new.created_at)
      where id = new.template_id;
-  elsif new.kind = 'save' then
+  elsif new.event_type = 'save' then
     update public.templates set save_count = save_count + 1 where id = new.template_id;
-  elsif new.kind = 'export' then
+  elsif new.event_type = 'export' then
     update public.templates set export_count = export_count + 1 where id = new.template_id;
   end if;
   return new;
@@ -70,7 +70,7 @@ as $$
        select count(*)
          from public.template_usage_events e
         where e.template_id = t.id
-          and e.kind = 'pick'
+          and e.event_type = 'pick'
           and e.created_at > now() - interval '7 days'
      );
 $$;
@@ -85,7 +85,7 @@ security definer
 set search_path = ''
 as $$
 begin
-  insert into public.template_usage_events (template_id, user_id, kind)
+  insert into public.template_usage_events (template_id, user_id, event_type)
   values (new.template_id, new.user_id, 'save');
   return new;
 end;

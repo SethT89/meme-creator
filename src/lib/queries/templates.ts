@@ -44,14 +44,14 @@ export function useTemplatesByUsage() {
   })
 }
 
-type UsageEventKind = 'pick' | 'save' | 'export'
+type UsageEventType = 'pick' | 'save' | 'export'
 
 // A null template means the work did not use one (freeform). Saves are logged by a database
 // trigger on `creations`, so app code only logs picks and exports.
-async function insertUsageEvent(kind: UsageEventKind, templateId: string | null) {
+async function insertUsageEvent(eventType: UsageEventType, templateId: string | null) {
   const { error } = await supabase
     .from('template_usage_events')
-    .insert({ template_id: templateId, kind, user_id: getCurrentUserId() })
+    .insert({ template_id: templateId, event_type: eventType, user_id: getCurrentUserId() })
   if (error) throw error
 }
 

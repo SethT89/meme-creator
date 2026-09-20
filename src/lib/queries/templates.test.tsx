@@ -112,7 +112,7 @@ describe('useLogTemplateUsage', () => {
     const { result } = renderHook(() => useLogTemplateUsage(), { wrapper })
     result.current.mutate('t1')
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(lastUsageInsert).toEqual({ template_id: 't1', kind: 'pick', user_id: CURRENT_USER_ID })
+    expect(lastUsageInsert).toEqual({ template_id: 't1', event_type: 'pick', user_id: CURRENT_USER_ID })
   })
 })
 
@@ -121,13 +121,13 @@ describe('useLogExport', () => {
     const { result } = renderHook(() => useLogExport(), { wrapper })
     result.current.mutate('t1')
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(lastUsageInsert).toEqual({ template_id: 't1', kind: 'export', user_id: CURRENT_USER_ID })
+    expect(lastUsageInsert).toEqual({ template_id: 't1', event_type: 'export', user_id: CURRENT_USER_ID })
   })
 
   it('inserts an export event with no template for freeform work', async () => {
     const { result } = renderHook(() => useLogExport(), { wrapper })
     result.current.mutate(null)
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(lastUsageInsert).toEqual({ template_id: null, kind: 'export', user_id: CURRENT_USER_ID })
+    expect(lastUsageInsert).toEqual({ template_id: null, event_type: 'export', user_id: CURRENT_USER_ID })
   })
 })
