@@ -19,7 +19,7 @@ import { CanvasFab } from './CanvasFab'
 import { CanvasMoreMenu } from './CanvasMoreMenu'
 import { SaveDialog } from './SaveDialog'
 import { useCreation, useCreateCreation, useCreations, useUpdateCreation } from '../../lib/queries/creations'
-import { useTemplates, useTemplateFields } from '../../lib/queries/templates'
+import { useTemplates, useTemplateFields, useLogExport } from '../../lib/queries/templates'
 import { nextAvailableName } from '../../lib/creationNaming'
 import {
   layersFromCanvasData,
@@ -82,6 +82,7 @@ export function EditorPage() {
   const { data: allTemplates = [] } = useTemplates()
   const createCreation = useCreateCreation()
   const updateCreation = useUpdateCreation()
+  const logExport = useLogExport()
 
   // The unsaved work left behind last time, if any (see lib/editorDraft.ts): restored silently,
   // straight into the editor's own state below. Read once, on mount. On a saved meme's own route
@@ -1161,6 +1162,8 @@ export function EditorPage() {
 
   async function handleExport() {
     if (!source || !activeCanvas || !imgRef.current) return
+    // No template (freeform work) is logged as an empty template id.
+    const templateId = source.type === 'template' ? source.templateId : null
     setExporting(true)
     try {
       await whenTemplateImageReady()
@@ -1175,6 +1178,7 @@ export function EditorPage() {
       if (isMobileOrTabletDevice() && canShareFile(file)) {
         try {
           await shareFile(file, filename)
+          logExport.mutate(templateId) // only a completed share counts; a cancelled sheet rejects below
           setToast({ message: 'Shared!', isError: false })
         } catch (err) {
           // A user cancelling the native share sheet rejects with
@@ -1185,6 +1189,7 @@ export function EditorPage() {
         }
       } else {
         downloadBlob(blob, filename)
+        logExport.mutate(templateId)
         setToast({ message: 'Downloaded!', isError: false })
       }
     } catch {

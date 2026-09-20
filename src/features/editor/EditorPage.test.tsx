@@ -57,11 +57,13 @@ let saveError: { message: string } | null = null
 // vi.hoisted so this vi.fn() exists before the hoisted vi.mock factory below
 // runs — lets individual tests override its resolved value (e.g. simulate a
 // failed upload) via vi.mocked(mockStorageUpload).mockResolvedValueOnce(...).
-const { mockStorageUpload } = vi.hoisted(() => ({
+const { mockStorageUpload, usageInserts } = vi.hoisted(() => ({
   mockStorageUpload: vi.fn(
     (): Promise<{ data: { path: string } | null; error: { message: string } | null }> =>
       Promise.resolve({ data: { path: 'mock-path' }, error: null }),
   ),
+  // Every row inserted into template_usage_events (template picks and exports alike).
+  usageInserts: [] as Array<{ template_id: string | null; kind: string }>,
 }))
 
 vi.mock('../../lib/supabase', () => ({
@@ -90,7 +92,12 @@ vi.mock('../../lib/supabase', () => ({
         }
       }
       if (table === 'template_usage_events') {
-        return { insert: () => Promise.resolve({ error: null }) }
+        return {
+          insert: (values: { template_id: string | null; kind: string }) => {
+            usageInserts.push(values)
+            return Promise.resolve({ error: null })
+          },
+        }
       }
       // creations
       return {
@@ -1819,11 +1826,14 @@ describe('EditorPage', () => {
       vi.mocked(isMobileOrTabletDevice).mockReset().mockReturnValue(false)
       vi.mocked(shareFile).mockReset().mockResolvedValue(undefined)
       vi.mocked(downloadBlob).mockReset()
+      usageInserts.length = 0
     })
 
     afterEach(() => {
       Reflect.deleteProperty(HTMLImageElement.prototype, 'decode')
     })
+
+    const exportEvents = () => usageInserts.filter((event) => event.kind === 'export')
 
     it('waits for the full-size template image to finish loading before rendering, so a quick click never exports a blank template', async () => {
       let finishLoading!: () => void
@@ -1946,6 +1956,66 @@ describe('EditorPage', () => {
       await userEvent.click(screen.getByRole('button', { name: 'Export' }))
 
       expect(await screen.findByRole('status')).toHaveTextContent('failed')
+    })
+
+    it('logs an export event for the template once a download succeeds', async () => {
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+
+      await userEvent.click(screen.getByRole('button', { name: 'Export' }))
+
+      await waitFor(() => expect(exportEvents()).toEqual([expect.objectContaining({ template_id: 'tmpl-1', kind: 'export' })]))
+    })
+
+    it('logs an export event once a native share completes', async () => {
+      vi.mocked(canShareFile).mockReturnValue(true)
+      vi.mocked(isMobileOrTabletDevice).mockReturnValue(true)
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+
+      await userEvent.click(screen.getByRole('button', { name: 'Export' }))
+
+      await waitFor(() => expect(exportEvents()).toHaveLength(1))
+    })
+
+    it('does not log an export when the user cancels the native share sheet', async () => {
+      vi.mocked(canShareFile).mockReturnValue(true)
+      vi.mocked(isMobileOrTabletDevice).mockReturnValue(true)
+      const abortError = new Error('cancelled')
+      abortError.name = 'AbortError'
+      vi.mocked(shareFile).mockRejectedValue(abortError)
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+
+      await userEvent.click(screen.getByRole('button', { name: 'Export' }))
+
+      await Promise.resolve()
+      expect(exportEvents()).toHaveLength(0)
+    })
+
+    it('does not log an export when rendering fails', async () => {
+      vi.mocked(renderCreationToBlob).mockRejectedValue(new Error('boom'))
+      renderEditor()
+      await userEvent.click(await screen.findByText('Two Buttons'))
+
+      await userEvent.click(screen.getByRole('button', { name: 'Export' }))
+
+      expect(await screen.findByRole('status')).toHaveTextContent('failed')
+      expect(exportEvents()).toHaveLength(0)
+    })
+
+    it('logs a freeform export with no template', async () => {
+      renderEditor()
+      await screen.findByRole('button', { name: 'Two Buttons' })
+      await userEvent.click(screen.getByRole('button', { name: 'Open add menu' }))
+      await userEvent.click(screen.getByRole('button', { name: 'Upload Image' }))
+      await selectImageFile('vacation.png')
+      await screen.findByAltText('')
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Export' })).toBeEnabled())
+
+      await userEvent.click(screen.getByRole('button', { name: 'Export' }))
+
+      await waitFor(() => expect(exportEvents()).toEqual([expect.objectContaining({ template_id: null, kind: 'export' })]))
     })
   })
 
