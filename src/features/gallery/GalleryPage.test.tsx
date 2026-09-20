@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, within, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 vi.mock('../../lib/exportDelivery', () => ({
   sanitizeFilename: (name: string) => name.replace(/[^a-zA-Z0-9]+/g, '-'),
@@ -14,6 +14,7 @@ import { canShareFile, isMobileOrTabletDevice, shareFile, downloadBlob } from '.
 vi.mock('../../lib/assetStorage', () => ({ removeUnusedAssets: vi.fn().mockResolvedValue(undefined) }))
 import { removeUnusedAssets } from '../../lib/assetStorage'
 import { GalleryPage } from './GalleryPage'
+import { readDraft, writeDraft } from '../../lib/editorDraft'
 
 const rows: Array<{ id: string; name: string; tags: string[]; preview_image_url: string | null; canvas_data?: unknown }> = []
 
@@ -173,4 +174,97 @@ describe('GalleryPage', () => {
       expect(await screen.findByRole('alert')).toHaveTextContent(/download failed/i)
     })
   })
+
+  describe('opening a saved meme while the editor holds unsaved work', () => {
+    // Opening replaces whatever is in the editor, so it must warn first — but only when there is
+    // real work to lose, and never for the meme the work already belongs to.
+    function renderRouted() {
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      return render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={['/gallery']}>
+            <Routes>
+              <Route path="/gallery" element={<GalleryPage />} />
+              <Route path="/editor/:id" element={<p>EDITOR OPENED</p>} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      )
+    }
+    const leaveDraft = (over: Partial<Parameters<typeof writeDraft>[0]> = {}) =>
+      writeDraft({
+        hasEdits: true,
+        source: { type: 'template', name: 'Two Buttons', templateId: 'tmpl-1', blankImageUrl: 'https://x/blank.jpg' },
+        savedMeta: null,
+        layers: [],
+        baseline: [],
+        canvasEdited: false,
+        ...over,
+      })
+    async function clickOpen() {
+      await userEvent.click(await screen.findByRole('button', { name: 'More options for Drake 1' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Open in editor' }))
+    }
+
+    it('opens straight away when nothing is waiting in the editor', async () => {
+      renderRouted()
+      await clickOpen()
+      expect(await screen.findByText('EDITOR OPENED')).toBeInTheDocument()
+    })
+
+    it('warns first when there is unsaved work, and does not open yet', async () => {
+      leaveDraft()
+      renderRouted()
+      await clickOpen()
+
+      const dialog = screen.getByRole('dialog')
+      expect(within(dialog).getByText(/unsaved work/i)).toBeInTheDocument()
+      expect(screen.queryByText('EDITOR OPENED')).not.toBeInTheDocument()
+      expect(readDraft()).not.toBeNull() // nothing discarded by merely asking
+    })
+
+    it('keeps the work and stays put when the warning is cancelled', async () => {
+      leaveDraft()
+      renderRouted()
+      await clickOpen()
+      await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }))
+
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(screen.queryByText('EDITOR OPENED')).not.toBeInTheDocument()
+      expect(readDraft()).not.toBeNull()
+    })
+
+    it('discards the work and opens the meme when the warning is confirmed', async () => {
+      leaveDraft()
+      renderRouted()
+      await clickOpen()
+      await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /open/i }))
+
+      expect(await screen.findByText('EDITOR OPENED')).toBeInTheDocument()
+      expect(readDraft()).toBeNull()
+    })
+
+    it('does not warn about a template that was picked but never edited — there is nothing to lose', async () => {
+      leaveDraft({ hasEdits: false })
+      renderRouted()
+      await clickOpen()
+      expect(await screen.findByText('EDITOR OPENED')).toBeInTheDocument()
+    })
+
+    it('does not warn when the unsaved work IS edits to this very meme — opening it just restores them', async () => {
+      leaveDraft({ savedMeta: { id: '1', name: 'Drake 1', tags: [] } })
+      renderRouted()
+      await clickOpen()
+      expect(await screen.findByText('EDITOR OPENED')).toBeInTheDocument()
+      expect(readDraft()).not.toBeNull() // kept, so the editor can restore it
+    })
+
+    it('does warn when the unsaved work is edits to a DIFFERENT saved meme', async () => {
+      leaveDraft({ savedMeta: { id: 'other', name: 'Other', tags: [] } })
+      renderRouted()
+      await clickOpen()
+      expect(screen.getByRole('dialog')).toBeInTheDocument()
+    })
+  })
 })
+

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useCreations, useDeleteCreation } from '../../lib/queries/creations'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { canShareFile, downloadBlob, isMobileOrTabletDevice, sanitizeFilename, shareFile } from '../../lib/exportDelivery'
+import { clearDraft, readDraft } from '../../lib/editorDraft'
 import { GalleryCard } from './GalleryCard'
 
 export function GalleryPage() {
@@ -11,6 +12,25 @@ export function GalleryPage() {
   const navigate = useNavigate()
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
   const [downloadError, setDownloadError] = useState(false)
+  // A saved meme waiting on "discard your unsaved work?" before it opens.
+  const [pendingOpenId, setPendingOpenId] = useState<string | null>(null)
+
+  // Opening a saved meme replaces whatever is in the editor. If that is unsaved work worth
+  // keeping, ask first — but not for a template that was only picked (nothing to lose), and
+  // not when the work IS edits to this very meme (opening it just restores them).
+  function handleOpen(id: string) {
+    const draft = readDraft()
+    if (draft?.hasEdits && draft.savedMeta?.id !== id) setPendingOpenId(id)
+    else navigate(`/editor/${id}`)
+  }
+
+  function confirmOpen() {
+    if (pendingOpenId) {
+      clearDraft()
+      navigate(`/editor/${pendingOpenId}`)
+    }
+    setPendingOpenId(null)
+  }
 
   const pendingDelete = creations.find((c) => c.id === pendingDeleteId)
   const pendingDeleteName = pendingDelete?.name
@@ -83,11 +103,20 @@ export function GalleryPage() {
             key={creation.id}
             creation={creation}
             onDownload={handleDownload}
-            onOpen={(id) => navigate(`/editor/${id}`)}
+            onOpen={handleOpen}
             onDelete={(id) => setPendingDeleteId(id)}
           />
         ))}
       </div>
+
+      <ConfirmDialog
+        open={pendingOpenId !== null}
+        title="Open this meme?"
+        message="You have unsaved work in the editor. Opening this meme will discard it. This can't be undone."
+        confirmLabel="Discard and Open"
+        onConfirm={confirmOpen}
+        onCancel={() => setPendingOpenId(null)}
+      />
 
       <ConfirmDialog
         open={pendingDeleteId !== null}

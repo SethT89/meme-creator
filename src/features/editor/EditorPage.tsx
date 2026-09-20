@@ -43,6 +43,8 @@ import {
 import type { Layer, TextLayer, ImageLayer, ImageBounds, ResizeSign, ReorderAction, TextStylePatch } from '../../lib/layers'
 import { renderCreationToBlob } from '../../lib/exportCanvas'
 import { fitToolbar } from '../../lib/viewportClamp'
+import { clearDraft, draftBelongsTo, readDraft, writeDraft } from '../../lib/editorDraft'
+import type { EditorSource } from '../../lib/editorDraft'
 import { useMediaQuery } from '../../lib/useMediaQuery'
 import { useKeyboardInset } from '../../lib/useKeyboardInset'
 import type { RenderOptions } from '../../lib/exportCanvas'
@@ -52,28 +54,14 @@ import { PREVIEW_RENDER_OPTIONS } from '../../lib/previewStorage'
 import { supabase } from '../../lib/supabase'
 import type { Json } from '../../types/database'
 
-type Source =
-  | { type: 'freeform'; name: string; canvasWidth?: number; canvasHeight?: number }
-  // A template's canvas starts as exactly its image. Once adjusted, canvasWidth/
-  // canvasHeight are the canvas's own size and backgroundX/Y is where the
-  // template image sits inside it (all four undefined until then).
-  | {
-      type: 'template'
-      name: string
-      templateId: string
-      blankImageUrl: string
-      // Small thumbnail shown behind the full image until it has loaded.
-      thumbnailUrl?: string | null
-      canvasWidth?: number
-      canvasHeight?: number
-      backgroundX?: number
-      backgroundY?: number
-    }
-  | null
+// The editor's source lives in lib/editorDraft.ts, since the draft stores it.
+type Source = EditorSource | null
 // Two taps on the same caption within this long, and this close together, are a
 // double-tap (see handleTextPointerUp).
 const DOUBLE_TAP_MS = 350
 const DOUBLE_TAP_SLOP = 24
+// How long editing must pause before the draft is written to the browser.
+const DRAFT_WRITE_DELAY_MS = 400
 type SavedMeta = { id: string; name: string; tags: string[] } | null
 type CanvasData = { layers?: Layer[]; canvasWidth?: number; canvasHeight?: number; backgroundX?: number; backgroundY?: number }
 
@@ -95,8 +83,19 @@ export function EditorPage() {
   const createCreation = useCreateCreation()
   const updateCreation = useUpdateCreation()
 
-  const [source, setSource] = useState<Source>(null)
-  const [savedMeta, setSavedMeta] = useState<SavedMeta>(null)
+  // The unsaved work left behind last time, if any (see lib/editorDraft.ts): restored silently,
+  // straight into the editor's own state below. Read once, on mount. On a saved meme's own route
+  // only a draft OF that meme applies; any other draft is left for the saved meme to replace.
+  const [initialDraft] = useState(() => {
+    const draft = readDraft()
+    return draft && draftBelongsTo(draft, creationId) ? draft : null
+  })
+  // True while the layers in state came from a restored draft. The template-seeding step below
+  // fills in a template's default captions once they load — which would overwrite the restored
+  // layers — so it stands down until the user starts something new (another template, Clear Canvas…).
+  const [draftOwnsLayers, setDraftOwnsLayers] = useState(initialDraft !== null)
+  const [source, setSource] = useState<Source>(initialDraft?.source ?? null)
+  const [savedMeta, setSavedMeta] = useState<SavedMeta>(initialDraft?.savedMeta ?? null)
   const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null)
   const [editingLayerId, setEditingLayerId] = useState<string | null>(null)
   // Explicit mode, entered via the More Options menu's "Adjust Canvas" item
@@ -191,7 +190,7 @@ export function EditorPage() {
   }, [templateRow, source])
 
   const { data: fields = [], isSuccess: fieldsLoaded } = useTemplateFields(source?.type === 'template' ? source.templateId : undefined)
-  const [layers, setLayers] = useState<Layer[]>([])
+  const [layers, setLayers] = useState<Layer[]>(initialDraft?.layers ?? [])
   const [layersSeededFor, setLayersSeededFor] = useState<string | undefined>(undefined)
   // Snapshot of `layers` exactly as seeded (fresh template defaults, or a
   // saved creation's own canvas_data) — compared against the live `layers`
@@ -199,7 +198,7 @@ export function EditorPage() {
   // so switching templates only needs to confirm when there's real work to
   // lose. A ref, not state: it's only ever read at the moment of an action
   // (switching templates), never rendered.
-  const baselineLayersRef = useRef<Layer[]>([])
+  const baselineLayersRef = useRef<Layer[]>(initialDraft?.baseline ?? [])
   const imgRef = useRef<HTMLElement>(null)
   // The template image inside the canvas box (drawn under every layer).
   const bgImgRef = useRef<HTMLImageElement>(null)
@@ -208,7 +207,7 @@ export function EditorPage() {
   // Set once a canvas resize actually changes something, so switching templates
   // afterwards asks before throwing the adjustment away, even with no layer
   // edits. Reset wherever the baseline layers are reset.
-  const canvasEditedRef = useRef(false)
+  const canvasEditedRef = useRef(initialDraft?.canvasEdited ?? false)
   const canvasScrollRef = useRef<HTMLDivElement>(null)
   // Fixed-position (viewport pixel) anchor for the portaled PropertyBar —
   // see the useLayoutEffect below for why this is measured into state
@@ -394,10 +393,65 @@ export function EditorPage() {
     }
   }, [activeCanvas, layers, selectedFieldId])
 
+  // --- Draft: keep the editor's unsaved work in the browser (lib/editorDraft.ts) ---
+  // The latest state, written after a short pause in editing (not on every keystroke) — and
+  // straight away when the page is hidden/closed or this screen is left (tapping My Saves),
+  // which usually happens inside that pause.
+  const pendingDraft = useRef<Parameters<typeof writeDraft>[0] | null>(null)
+  // Bumped after a save: it changes what counts as unsaved without changing any state below.
+  const [savedTick, setSavedTick] = useState(0)
+  useEffect(() => {
+    // Nothing loaded (fresh editor, or a saved meme still loading): write nothing — and never
+    // CLEAR here, or merely opening a saved meme would wipe the draft before anyone chose to.
+    if (source === null) {
+      pendingDraft.current = null
+      return
+    }
+    // A template's default captions arrive separately: a draft with no layers yet would
+    // restore a template with none, so wait until they're in. A blank canvas needs its image.
+    const seeded = draftOwnsLayers || layersSeededFor !== undefined
+    if (source.type === 'template' && !seeded) return
+    if (source.type === 'freeform' && layers.length === 0) return
+    const draft = {
+      hasEdits: canvasEditedRef.current || JSON.stringify(layers) !== JSON.stringify(baselineLayersRef.current),
+      source,
+      savedMeta,
+      layers,
+      baseline: baselineLayersRef.current,
+      canvasEdited: canvasEditedRef.current,
+    }
+    pendingDraft.current = draft
+    const timer = setTimeout(() => {
+      writeDraft(draft)
+      if (pendingDraft.current === draft) pendingDraft.current = null
+    }, DRAFT_WRITE_DELAY_MS)
+    return () => clearTimeout(timer)
+  }, [source, savedMeta, layers, layersSeededFor, draftOwnsLayers, savedTick])
+  useEffect(() => {
+    const flush = () => {
+      const draft = pendingDraft.current
+      if (draft) {
+        writeDraft(draft)
+        pendingDraft.current = null
+      }
+    }
+    const flushWhenHidden = () => {
+      if (document.visibilityState === 'hidden') flush()
+    }
+    window.addEventListener('pagehide', flush)
+    document.addEventListener('visibilitychange', flushWhenHidden)
+    return () => {
+      window.removeEventListener('pagehide', flush)
+      document.removeEventListener('visibilitychange', flushWhenHidden)
+      flush() // leaving this screen
+    }
+  }, [])
+
   // When editing an existing creation, sync local state from it the first time
   // it loads for this id — done during render (not in an effect) so it doesn't
   // clobber local state after a later Save As switches to a new id locally.
-  const [loadedCreationId, setLoadedCreationId] = useState<string | undefined>(undefined)
+  // Starts as the restored draft's meme, so its saved version doesn't load over the restored edits.
+  const [loadedCreationId, setLoadedCreationId] = useState<string | undefined>(initialDraft?.savedMeta?.id)
   if (existingCreation && existingCreation.id !== loadedCreationId) {
     if (existingCreation.source_type === 'template' && existingCreation.template_id) {
       // allTemplates is a separate async query — it may not have resolved yet.
@@ -447,7 +501,7 @@ export function EditorPage() {
   // with no starter captions), and its saved layers — text the user added —
   // must still load. Gating on fields.length > 0 silently dropped them, and a
   // later Save then overwrote the stored layers with an empty list.
-  if (source?.type === 'template' && fieldsLoaded) {
+  if (source?.type === 'template' && fieldsLoaded && !draftOwnsLayers) {
     const seedKey = existingCreation?.id ?? 'new:' + source.templateId
     if (layersSeededFor !== seedKey) {
       setLayersSeededFor(seedKey)
@@ -462,6 +516,10 @@ export function EditorPage() {
   }
 
   function clearCanvas() {
+    // The work was deliberately discarded (the user confirmed): forget the draft too, including
+    // any write still waiting out its pause.
+    pendingDraft.current = null
+    clearDraft()
     setSource(null)
     setSavedMeta(null)
     setSelectedFieldId(null)
@@ -471,6 +529,7 @@ export function EditorPage() {
     cropSession.current = null
     setLayers([])
     setLayersSeededFor(undefined)
+    setDraftOwnsLayers(false)
     baselineLayersRef.current = []
     canvasEditedRef.current = false
     if (creationId) navigate('/')
@@ -492,6 +551,7 @@ export function EditorPage() {
     cropSession.current = null
     setLayers([])
     setLayersSeededFor(undefined)
+    setDraftOwnsLayers(false)
     baselineLayersRef.current = []
     canvasEditedRef.current = false
     if (creationId) navigate('/')
@@ -674,6 +734,7 @@ export function EditorPage() {
         cropSession.current = null
         setLayers([newLayer])
         setLayersSeededFor(undefined)
+        setDraftOwnsLayers(false)
         // The freshly-created canvas's starting point already includes this
         // first image — matches loadTemplate's baseline-equals-just-seeded
         // pattern, so switching away without adding anything else doesn't
@@ -706,6 +767,7 @@ export function EditorPage() {
         setSavedMeta(null)
         setLayers([])
         setLayersSeededFor(undefined)
+        setDraftOwnsLayers(false)
         baselineLayersRef.current = []
         canvasEditedRef.current = false
       } else if (newLayerId) {
@@ -1039,8 +1101,21 @@ export function EditorPage() {
     }
   }
 
+  // Work that has just been saved is no longer "unsaved": the saved layers become the new
+  // baseline and the canvas-adjusted flag resets. Without this, the editor kept treating
+  // just-saved work as unsaved edits — it would ask to "discard your work" for something already
+  // safe in My Saves, and the draft would keep claiming there was something to protect.
+  function markSaved(savedLayers: Layer[]) {
+    baselineLayersRef.current = savedLayers
+    canvasEditedRef.current = false
+    setSavedTick((tick) => tick + 1)
+  }
+
   async function handleDialogSave(name: string, tags: string[]) {
     const activeSource = source! // guaranteed non-null: Save to Gallery only renders once source is set
+    // Exactly what is being saved: edits made while the (slow) render/upload is in flight are NOT
+    // in it, so they must still count as unsaved afterwards.
+    const savedLayers = layers
     setSaving(true)
     try {
       // Captured before the (async) render so the saved layers and the saved
@@ -1055,6 +1130,7 @@ export function EditorPage() {
         canvasData,
         previewBlob,
       })
+      markSaved(savedLayers)
       setSavedMeta({ id: row.id, name: row.name, tags: row.tags })
       setDialogOpen(false)
       setToast({ message: 'Saved!', isError: false })
@@ -1068,11 +1144,13 @@ export function EditorPage() {
 
   async function handleQuickSave() {
     if (!savedMeta) return
+    const savedLayers = layers
     setSaving(true)
     try {
       const canvasData = buildCanvasData(source)
       const previewBlob = await renderPreviewBlob()
       await updateCreation.mutateAsync({ id: savedMeta.id, name: savedMeta.name, tags: savedMeta.tags, canvasData, previewBlob })
+      markSaved(savedLayers)
       setToast({ message: 'Saved!', isError: false })
     } catch {
       setToast({ message: 'Save failed — try again.', isError: true })

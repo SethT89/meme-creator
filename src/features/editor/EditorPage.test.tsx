@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { EditorPage } from './EditorPage'
+import { readDraft, writeDraft, DRAFT_TTL_MS } from '../../lib/editorDraft'
 
 vi.mock('../../lib/exportCanvas', () => ({
   renderCreationToBlob: vi.fn(),
@@ -615,6 +616,315 @@ describe('EditorPage', () => {
 
     await userEvent.click(screen.getByRole('img', { name: 'Two Buttons' }))
     expect(document.querySelectorAll(handleSelector)).toHaveLength(0)
+  })
+
+  describe('draft: unsaved work survives leaving the editor', () => {
+    const textLayer = (id: string, label: string, over: Record<string, unknown> = {}) => ({
+      type: 'text' as const,
+      id,
+      label,
+      x: 30,
+      y: 50,
+      width: 220,
+      height: 110,
+      fontSize: 22,
+      heightAuto: true,
+      fontFamily: 'anton' as const,
+      ...over,
+    })
+    const defaults = [
+      textLayer('f1', 'Caption 1'),
+      textLayer('f2', 'Caption 2', { x: 310, y: 70 }),
+      textLayer('f3', 'Caption 3', { x: 60, y: 680, width: 480, height: 100, fontSize: 28 }),
+    ]
+    const twoButtons = { type: 'template' as const, name: 'Two Buttons', templateId: 'tmpl-1', blankImageUrl: 'https://example.com/blank.jpg', thumbnailUrl: null }
+    // A draft as the editor would have left it: caption 1 edited, the rest untouched.
+    const seedDraft = (over: Partial<Parameters<typeof writeDraft>[0]> = {}, now?: number) =>
+      writeDraft(
+        {
+          hasEdits: true,
+          source: twoButtons,
+          savedMeta: null,
+          layers: [textLayer('f1', 'Restored caption'), defaults[1], defaults[2]],
+          baseline: defaults,
+          canvasEdited: false,
+          ...over,
+        },
+        now,
+      )
+    const draftLabel = (id: string) => (readDraft()?.layers.find((l) => l.id === id) as { label?: string } | undefined)?.label
+
+    describe('writing it', () => {
+      it('keeps a picked template as soon as its captions are in, even with no edits (but says there is nothing to lose)', async () => {
+        renderEditor()
+        await userEvent.click(await screen.findByText('Two Buttons'))
+        await screen.findByText('Caption 1')
+
+        await waitFor(() => expect(readDraft()).not.toBeNull(), { timeout: 2000 })
+        const draft = readDraft()!
+        expect(draft.source).toMatchObject({ type: 'template', templateId: 'tmpl-1' })
+        expect(draft.layers).toHaveLength(3) // never written before the captions were seeded
+        expect(draft.hasEdits).toBe(false)
+      })
+
+      it('keeps edits, and marks the draft as having something worth protecting', async () => {
+        renderEditor()
+        await userEvent.click(await screen.findByText('Two Buttons'))
+        await userEvent.click(await screen.findByText('Caption 1'))
+        await userEvent.click(screen.getByText(/size: 22px/i))
+        await userEvent.click(screen.getByText('Large'))
+
+        await waitFor(() => expect(readDraft()?.hasEdits).toBe(true), { timeout: 2000 })
+        expect(readDraft()!.layers.find((l) => l.id === 'f1')).toMatchObject({ fontSize: 48 })
+      })
+
+      it('does not write on every keystroke: it waits for a pause', async () => {
+        renderEditor()
+        await userEvent.click(await screen.findByText('Two Buttons'))
+        await screen.findByText('Caption 1')
+        // nothing yet, immediately after the change...
+        expect(readDraft()).toBeNull()
+        // ...but it does arrive
+        await waitFor(() => expect(readDraft()).not.toBeNull(), { timeout: 2000 })
+      })
+
+      it('writes immediately when the page is being hidden or closed, so the last edit is not lost', async () => {
+        renderEditor()
+        await userEvent.click(await screen.findByText('Two Buttons'))
+        await userEvent.click(await screen.findByText('Caption 1'))
+        await userEvent.click(screen.getByText(/size: 22px/i))
+        await userEvent.click(screen.getByText('Large'))
+        expect(readDraft()).toBeNull() // still inside the pause
+
+        fireEvent(window, new Event('pagehide'))
+
+        expect(readDraft()!.layers.find((l) => l.id === 'f1')).toMatchObject({ fontSize: 48 })
+      })
+
+      it('writes immediately when leaving the editor screen (e.g. tapping My Saves), however fast', async () => {
+        const { unmount } = renderEditor()
+        await userEvent.click(await screen.findByText('Two Buttons'))
+        await userEvent.click(await screen.findByText('Caption 1'))
+        await userEvent.click(screen.getByText(/size: 22px/i))
+        await userEvent.click(screen.getByText('Large'))
+
+        unmount()
+
+        expect(readDraft()!.layers.find((l) => l.id === 'f1')).toMatchObject({ fontSize: 48 })
+      })
+
+      it('never writes anything for an empty editor, and does not wipe an existing draft just because nothing is loaded yet', async () => {
+        seedDraft()
+        savedRows.push({ id: 'c1', name: 'Two Buttons 1', tags: [], source_type: 'template', template_id: 'tmpl-1', canvas_data: {} })
+        renderEditor('/editor/c1')
+        // The editor is briefly empty (loading the saved meme) — the draft must survive that moment.
+        expect(readDraft()).not.toBeNull()
+      })
+    })
+
+    describe('restoring it', () => {
+      it('brings back the template and the edits when the editor opens, with no message', async () => {
+        seedDraft()
+        renderEditor()
+
+        expect(await screen.findByText('Restored caption')).toBeInTheDocument()
+        expect(await screen.findByRole('img', { name: 'Two Buttons' })).toBeInTheDocument()
+        expect(screen.getByText('Caption 2')).toBeInTheDocument() // the untouched ones too
+        expect(screen.queryByText('Caption 1')).not.toBeInTheDocument() // not reset to defaults
+        expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      })
+
+      it('is not overwritten by the template\'s own default captions arriving afterwards', async () => {
+        seedDraft()
+        renderEditor()
+        await screen.findByText('Restored caption')
+        // give the template's default captions (a separate async load) time to land
+        await new Promise((r) => setTimeout(r, 200))
+        expect(screen.getByText('Restored caption')).toBeInTheDocument()
+        expect(screen.queryByText('Caption 1')).not.toBeInTheDocument()
+      })
+
+      it('ignores a draft older than 30 days, and starts blank', async () => {
+        seedDraft({}, Date.now() - DRAFT_TTL_MS - 1000)
+        renderEditor()
+        await screen.findByRole('searchbox', { name: 'Search memes' })
+        expect(screen.queryByText('Restored caption')).not.toBeInTheDocument()
+        expect(screen.queryByRole('img', { name: 'Two Buttons' })).not.toBeInTheDocument()
+      })
+
+      it('restores unsaved edits to a saved meme, with its name, on the plain editor route', async () => {
+        seedDraft({ savedMeta: { id: 'c1', name: 'My Saved Meme', tags: ['funny'] } })
+        renderEditor()
+        expect(await screen.findByText('Restored caption')).toBeInTheDocument()
+        expect(screen.getByRole('heading', { name: 'My Saved Meme' })).toBeInTheDocument()
+      })
+
+      it("restores a saved meme's own draft over the saved version when that meme is opened", async () => {
+        savedRows.push({ id: 'c1', name: 'Two Buttons 1', tags: [], source_type: 'template', template_id: 'tmpl-1', canvas_data: {} })
+        seedDraft({ savedMeta: { id: 'c1', name: 'Two Buttons 1', tags: [] } })
+        renderEditor('/editor/c1')
+
+        expect(await screen.findByText('Restored caption')).toBeInTheDocument()
+        expect(screen.queryByText('Caption 1')).not.toBeInTheDocument()
+      })
+
+      it("loads a saved meme normally when the draft belongs to a different one", async () => {
+        savedRows.push({ id: 'c1', name: 'Two Buttons 1', tags: [], source_type: 'template', template_id: 'tmpl-1', canvas_data: {} })
+        seedDraft({ savedMeta: { id: 'c2', name: 'Another Meme', tags: [] } })
+        renderEditor('/editor/c1')
+
+        expect(await screen.findByText('Caption 1')).toBeInTheDocument()
+        expect(screen.queryByText('Restored caption')).not.toBeInTheDocument()
+      })
+
+      it("loads a saved meme normally when the draft is new work", async () => {
+        savedRows.push({ id: 'c1', name: 'Two Buttons 1', tags: [], source_type: 'template', template_id: 'tmpl-1', canvas_data: {} })
+        seedDraft()
+        renderEditor('/editor/c1')
+
+        expect(await screen.findByText('Caption 1')).toBeInTheDocument()
+        expect(screen.queryByText('Restored caption')).not.toBeInTheDocument()
+      })
+    })
+
+    describe('a restored draft still protects your work', () => {
+      it('asks before another template replaces restored edits', async () => {
+        seedDraft()
+        renderEditor()
+        await screen.findByText('Restored caption')
+
+        await userEvent.click(screen.getByText('Plain Photo'))
+
+        expect(screen.getByRole('dialog')).toBeInTheDocument()
+        expect(screen.getByText('Restored caption')).toBeInTheDocument() // nothing replaced yet
+      })
+
+      it('does not ask when the restored template was never edited (nothing to lose)', async () => {
+        seedDraft({ hasEdits: false, layers: defaults })
+        renderEditor()
+        await screen.findByText('Caption 1')
+
+        await userEvent.click(screen.getByText('Plain Photo'))
+
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+        expect(await screen.findByRole('img', { name: 'Plain Photo' })).toBeInTheDocument()
+      })
+
+      it('still counts an adjusted canvas as work to protect, even with no layer edits', async () => {
+        seedDraft({ hasEdits: true, layers: defaults, canvasEdited: true })
+        renderEditor()
+        await screen.findByText('Caption 1')
+
+        await userEvent.click(screen.getByText('Plain Photo'))
+
+        expect(screen.getByRole('dialog')).toBeInTheDocument()
+      })
+
+      it('replaces the draft with the new template once the switch is confirmed', async () => {
+        seedDraft()
+        renderEditor()
+        await screen.findByText('Restored caption')
+
+        await userEvent.click(screen.getByText('Plain Photo'))
+        await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /switch|discard|continue|confirm|yes/i }))
+
+        expect(await screen.findByRole('img', { name: 'Plain Photo' })).toBeInTheDocument()
+        expect(screen.queryByText('Restored caption')).not.toBeInTheDocument()
+        await waitFor(() => expect(readDraft()?.source).toMatchObject({ templateId: 'tmpl-2' }), { timeout: 2000 })
+        expect(draftLabel('f1')).toBeUndefined()
+      })
+    })
+
+    describe('clearing it', () => {
+      it('Clear Canvas removes the draft, and it does not come back', async () => {
+        seedDraft()
+        renderEditor()
+        await screen.findByText('Restored caption')
+
+        await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+        await userEvent.click(screen.getByRole('menuitem', { name: 'Clear Canvas' }))
+        await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /clear|confirm|yes|discard/i }))
+
+        expect(readDraft()).toBeNull()
+        await new Promise((r) => setTimeout(r, 600)) // longer than the write pause
+        expect(readDraft()).toBeNull()
+      })
+    })
+
+    describe('saving', () => {
+      const saveViaDialog = async () => {
+        await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+        await userEvent.click(screen.getByRole('menuitem', { name: 'Save' }))
+        await userEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Save' }))
+      }
+
+      it('counts saved work as saved: the draft no longer claims unsaved edits', async () => {
+        renderEditor()
+        await userEvent.click(await screen.findByText('Two Buttons'))
+        await userEvent.click(await screen.findByText('Caption 1'))
+        await userEvent.click(screen.getByText(/size: 22px/i))
+        await userEvent.click(screen.getByText('Large'))
+        await waitFor(() => expect(readDraft()?.hasEdits).toBe(true), { timeout: 2000 })
+
+        await userEvent.click(document.body) // deselect
+        await saveViaDialog()
+
+        await waitFor(() => expect(readDraft()?.hasEdits).toBe(false), { timeout: 2000 })
+        expect(readDraft()!.savedMeta).not.toBeNull() // and it is now a draft of that saved meme
+      })
+
+      it('does not ask to discard just-saved work when switching templates', async () => {
+        renderEditor()
+        await userEvent.click(await screen.findByText('Two Buttons'))
+        await userEvent.click(await screen.findByText('Caption 1'))
+        await userEvent.click(screen.getByText(/size: 22px/i))
+        await userEvent.click(screen.getByText('Large'))
+        await userEvent.click(document.body)
+        await saveViaDialog()
+        await screen.findByRole('status') // the "Saved!" toast: the save has finished
+
+        await userEvent.click(screen.getByText('Plain Photo'))
+
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+        expect(await screen.findByRole('img', { name: 'Plain Photo' })).toBeInTheDocument()
+      })
+
+      it('also counts an update to an already-saved meme as saved (the quick Save)', async () => {
+        savedRows.push({ id: 'c1', name: 'Two Buttons 1', tags: [], source_type: 'template', template_id: 'tmpl-1', canvas_data: {} })
+        renderEditor('/editor/c1')
+        await userEvent.click(await screen.findByText('Caption 1'))
+        await userEvent.click(screen.getByText(/size: 22px/i))
+        await userEvent.click(screen.getByText('Large'))
+        await waitFor(() => expect(readDraft()?.hasEdits).toBe(true), { timeout: 2000 })
+        await userEvent.click(document.body)
+
+        await userEvent.click(screen.getByRole('button', { name: 'More options' }))
+        await userEvent.click(screen.getByRole('menuitem', { name: 'Save' })) // no dialog: it already has a name
+
+        await screen.findByRole('status')
+        await waitFor(() => expect(readDraft()?.hasEdits).toBe(false), { timeout: 2000 })
+      })
+
+      it('still asks after edits made AFTER saving', async () => {
+        renderEditor()
+        await userEvent.click(await screen.findByText('Two Buttons'))
+        await userEvent.click(await screen.findByText('Caption 1'))
+        await userEvent.click(screen.getByText(/size: 22px/i))
+        await userEvent.click(screen.getByText('Large'))
+        await userEvent.click(document.body)
+        await saveViaDialog()
+        await screen.findByRole('status')
+
+        await userEvent.click(screen.getByText('Caption 2'))
+        await userEvent.click(screen.getByText(/size: 22px/i))
+        await userEvent.click(screen.getByText('Large'))
+        await userEvent.click(document.body)
+        await userEvent.click(screen.getByText('Plain Photo'))
+
+        expect(screen.getByRole('dialog')).toBeInTheDocument()
+      })
+    })
   })
 
   describe('toolbar on a phone: docked to the bottom', () => {

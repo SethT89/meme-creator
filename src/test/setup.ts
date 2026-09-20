@@ -8,4 +8,7 @@ import { cleanup } from '@testing-library/react'
 // DOM from one test leaks into the next test in the same file.
 afterEach(() => {
   cleanup()
+  // The editor keeps a draft in localStorage; without this one test's draft would be
+  // restored into the next test's editor.
+  localStorage.clear()
 })

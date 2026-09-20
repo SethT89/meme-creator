@@ -11,6 +11,7 @@ vi.mock('../previewStorage', () => ({ uploadPreview: mockUploadPreview, removePr
 vi.mock('../assetStorage', () => ({ removeUnusedAssets: mockRemoveUnusedAssets }))
 
 import { useCreations, useCreateCreation, useUpdateCreation, useDeleteCreation } from './creations'
+import { readDraft, writeDraft } from '../editorDraft'
 
 const mockRow = {
   id: '1',
@@ -198,6 +199,48 @@ describe('useDeleteCreation', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
     expect(mockRemovePreview).not.toHaveBeenCalled()
     expect(mockRemoveUnusedAssets).not.toHaveBeenCalled()
+  })
+
+  describe("the editor draft of a deleted meme", () => {
+    const leaveDraftOf = (id: string | null) =>
+      writeDraft({
+        hasEdits: true,
+        source: { type: 'template', name: 'T', templateId: 't', blankImageUrl: 'https://x/b.jpg' },
+        savedMeta: id ? { id, name: 'n', tags: [] } : null,
+        layers: [],
+        baseline: [],
+        canvasEdited: false,
+      })
+
+    it('goes with it: edits to a meme that no longer exists have nothing to save into', async () => {
+      leaveDraftOf('1')
+      const { result } = renderHook(() => useDeleteCreation(), { wrapper })
+      result.current.mutate({ id: '1', previewImageUrl: null, canvasData })
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(readDraft()).toBeNull()
+    })
+
+    it("is left alone when it belongs to a different meme, or is new work", async () => {
+      leaveDraftOf('2')
+      const { result } = renderHook(() => useDeleteCreation(), { wrapper })
+      result.current.mutate({ id: '1', previewImageUrl: null, canvasData })
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(readDraft()).not.toBeNull()
+
+      leaveDraftOf(null)
+      result.current.mutate({ id: '1', previewImageUrl: null, canvasData })
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(readDraft()).not.toBeNull()
+    })
+
+    it('is kept when the delete itself fails, since the meme still exists', async () => {
+      leaveDraftOf('1')
+      deleteError = { message: 'boom' }
+      const { result } = renderHook(() => useDeleteCreation(), { wrapper })
+      result.current.mutate({ id: '1', previewImageUrl: null, canvasData })
+      await waitFor(() => expect(result.current.isError).toBe(true))
+      expect(readDraft()).not.toBeNull()
+    })
   })
 
   it('still succeeds when the image cleanup fails, since a leftover file must never fail a delete', async () => {

@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '../supabase'
 import { removePreview, uploadPreview } from '../previewStorage'
 import { removeUnusedAssets } from '../assetStorage'
+import { clearDraft, readDraft } from '../editorDraft'
 import type { Tables, Json } from '../../types/database'
 
 export type CreationRow = Tables<'creations'>
@@ -130,6 +131,8 @@ export function useDeleteCreation() {
     }) => {
       const { error } = await supabase.from('creations').delete().eq('id', id)
       if (error) throw error
+      // Unsaved edits to a meme that no longer exists have nothing to be saved into.
+      if (readDraft()?.savedMeta?.id === id) clearDraft()
       void removePreview(previewImageUrl)
       // Frees the images this creation uploaded (unless another creation, e.g.
       // a Save As copy, still uses them). The .catch is belt and braces:
