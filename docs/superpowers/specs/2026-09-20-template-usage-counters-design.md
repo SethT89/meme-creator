@@ -34,7 +34,8 @@ be built from the history collected so far.
   fast lookup, so it needs no cached counts of its own.
 
 **Insert trigger** on `template_usage_events` (`security definer`, `search_path = ''`):
-`use_count_total += 1`, `use_count_7d += 1`, `last_used_at = new.created_at` on the
+`use_count_total += 1`, `use_count_7d += 1` (only if the click is within the last 7 days,
+so a backdated event can't inflate it), `last_used_at = new.created_at` on the
 matching template. Atomic, so concurrent clicks cannot lose an update. Bumping the 7-day
 counter here too means a click shows up immediately instead of at the next hourly run.
 
