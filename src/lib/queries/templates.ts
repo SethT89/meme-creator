@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { supabase } from '../supabase'
 import { getCurrentUserId } from '../currentUser'
 
@@ -59,6 +59,15 @@ export function useTemplatesByUsage() {
       if (error) throw error
       return data
     },
+    // The list is ordered by popularity, and reordering it while someone is using it (they click one
+    // and it jumps, or they switch back to the tab and it shuffles) is disorienting. So the order is
+    // worked out once per visit to the page: a click, a window regaining focus or a reconnect never
+    // re-fetch it, and it is dropped from the cache the moment the sidebar goes away, so a page refresh
+    // or coming back to the main page fetches a fresh order.
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    gcTime: 0,
   })
 }
 
@@ -73,13 +82,11 @@ async function insertUsageEvent(eventType: UsageEventType, templateId: string | 
   if (error) throw error
 }
 
+// Deliberately does NOT refresh the popularity order: the click is counted for the next visit, and the
+// list stays exactly as it is now (see useTemplatesByUsage).
 export function useLogTemplateUsage() {
-  const queryClient = useQueryClient()
   return useMutation({
     mutationFn: (templateId: string) => insertUsageEvent('pick', templateId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['templates', 'by-usage'] })
-    },
   })
 }
 

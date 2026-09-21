@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { renderHook, waitFor, act } from '@testing-library/react'
+import { QueryClient, QueryClientProvider, focusManager, onlineManager } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { CURRENT_USER_ID } from '../currentUser'
 import { useTemplates, useTemplateFields, useTemplatesByUsage, useLogTemplateUsage, useLogExport, fetchTemplate, fetchTemplateFields } from './templates'
@@ -148,5 +148,64 @@ describe('fetchTemplate', () => {
 describe('fetchTemplateFields', () => {
   it("returns a template's caption fields in order", async () => {
     expect(await fetchTemplateFields('tmpl-1')).toEqual(mockFields)
+  })
+})
+
+describe('the popularity order stays put while the page is in use', () => {
+  // Fetches of the by-usage list, counted through the mock's `.order()` calls (two per fetch).
+  const fetches = () => lastTemplateOrders.length / 2
+  const settle = (ms = 30) => act(() => new Promise<void>((resolve) => setTimeout(resolve, ms)))
+
+  // One shared client, like the real app, so the click hook and the list hook see each other's cache.
+  function sharedClient() {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const shared = ({ children }: { children: ReactNode }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    return { queryClient, shared }
+  }
+
+  it('does not re-fetch (and so does not reorder) when a template is clicked', async () => {
+    lastTemplateOrders = []
+    const { shared } = sharedClient()
+    const list = renderHook(() => useTemplatesByUsage(), { wrapper: shared })
+    const log = renderHook(() => useLogTemplateUsage(), { wrapper: shared })
+    await waitFor(() => expect(list.result.current.isSuccess).toBe(true))
+    expect(fetches()).toBe(1)
+
+    log.result.current.mutate('t1')
+    await waitFor(() => expect(log.result.current.isSuccess).toBe(true))
+    await settle()
+
+    expect(fetches()).toBe(1)
+  })
+
+  it('does not re-fetch when the window regains focus or the network reconnects', async () => {
+    lastTemplateOrders = []
+    const { shared } = sharedClient()
+    const list = renderHook(() => useTemplatesByUsage(), { wrapper: shared })
+    await waitFor(() => expect(list.result.current.isSuccess).toBe(true))
+
+    act(() => {
+      focusManager.setFocused(false)
+      focusManager.setFocused(true)
+      onlineManager.setOnline(false)
+      onlineManager.setOnline(true)
+    })
+    await settle()
+
+    expect(fetches()).toBe(1)
+  })
+
+  it('fetches a fresh order each time the list comes back, e.g. returning to the main page', async () => {
+    lastTemplateOrders = []
+    const { shared } = sharedClient()
+    const first = renderHook(() => useTemplatesByUsage(), { wrapper: shared })
+    await waitFor(() => expect(first.result.current.isSuccess).toBe(true))
+    first.unmount() // leaving the page
+    await settle()
+
+    const second = renderHook(() => useTemplatesByUsage(), { wrapper: shared })
+    await waitFor(() => expect(second.result.current.isSuccess).toBe(true))
+
+    expect(fetches()).toBe(2)
   })
 })
