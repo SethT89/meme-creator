@@ -55,4 +55,19 @@ describe('useScrollLock', () => {
     expect(document.body.style.overflow).toBe('auto')
     expect(document.body.style.position).toBe('relative')
   })
+
+  it('stays locked until the LAST of several overlapping locks lets go (a dialog opening as a drawer closes)', () => {
+    setScrollY(50)
+    const first = renderHook(() => useScrollLock(true))
+    setScrollY(0) // a fixed body reports no scroll offset, so the second lock must not record this
+    const second = renderHook(() => useScrollLock(true))
+
+    first.unmount()
+    expect(document.body.style.position).toBe('fixed')
+    expect(scrollTo).not.toHaveBeenCalled()
+
+    second.unmount()
+    expect(document.body.style.position).toBe('')
+    expect(scrollTo).toHaveBeenCalledWith(0, 50)
+  })
 })

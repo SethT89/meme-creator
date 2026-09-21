@@ -52,4 +52,17 @@ describe('ConfirmDialog', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(onCancel).toHaveBeenCalled()
   })
+
+  it('locks the page behind it while open, and releases it when closed', () => {
+    const props = { title: 'Clear canvas?', message: 'Sure?', confirmLabel: 'Clear', onConfirm: vi.fn(), onCancel: vi.fn() }
+    const { rerender } = render(<ConfirmDialog open {...props} />)
+    expect(document.body.style.position).toBe('fixed')
+    rerender(<ConfirmDialog open={false} {...props} />)
+    expect(document.body.style.position).toBe('')
+  })
+
+  it('layers above the canvas + button and every toolbar', () => {
+    render(<ConfirmDialog open title="t" message="m" confirmLabel="ok" onConfirm={vi.fn()} onCancel={vi.fn()} />)
+    expect(screen.getByRole('dialog')).toHaveClass('z-60')
+  })
 })

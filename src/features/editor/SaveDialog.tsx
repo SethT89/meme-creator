@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Chip } from '../../components/ui/chip'
 import { Button } from '../../components/ui/button'
+import { ModalOverlay } from '../../components/ui/ModalOverlay'
 import { suggestTags } from '../../lib/creationNaming'
 import { TAP_HEIGHT } from '../../lib/touch'
 
@@ -45,7 +46,7 @@ export function SaveDialog({
   }
 
   return (
-    <div role="dialog" className="fixed inset-0 flex items-center justify-center bg-black/50">
+    <ModalOverlay>
       <div className="w-80 max-w-[calc(100vw-2rem)] rounded-lg bg-background p-4 shadow-lg">
         <h2 className="mb-3 text-sm font-semibold">{title}</h2>
 
@@ -61,9 +62,9 @@ export function SaveDialog({
         />
 
         <p className="mb-1 text-xs uppercase text-muted-foreground">Tags</p>
-        // The bordered box is the visible target, but only the thin input inside it took
-        // focus — tapping the rest of the box did nothing. Tapping the box's own empty space
-        // focuses the input (a tap on a chip or its ✕ is left alone).
+        {/* The bordered box is the visible target, but only the thin input inside it took
+            focus — tapping the rest of the box did nothing. Tapping the box's own empty space
+            focuses the input (a tap on a chip or its ✕ is left alone). */}
         <div
           className={`mb-1 flex flex-wrap items-center gap-1.5 rounded-md border border-border p-1.5 ${TAP_HEIGHT}`}
           onClick={(e) => {
@@ -112,6 +113,6 @@ export function SaveDialog({
           </Button>
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   )
 }

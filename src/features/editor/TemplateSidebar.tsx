@@ -210,8 +210,8 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
       </button>
       {drawerOpen && (
         // z-30: above the canvas's floating + button (z-10), which comes later in
-        // the page and would otherwise paint over the drawer. Below toasts and
-        // dialogs (z-50).
+        // the page and would otherwise paint over the drawer. Below dialogs (z-60)
+        // and toasts (z-70) — see lib/stacking.ts for the whole scale.
         <div className="fixed inset-0 z-30 flex sm:hidden">
           {/* touch-none: dragging on the dark strip must not scroll anything. */}
           <div className="absolute inset-0 touch-none bg-black/50" onClick={() => setDrawerOpen(false)} />

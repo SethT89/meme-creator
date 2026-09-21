@@ -20,6 +20,7 @@ import { CanvasMoreMenu } from './CanvasMoreMenu'
 import { SaveDialog } from './SaveDialog'
 import { useCreation, useCreateCreation, useCreations, useUpdateCreation } from '../../lib/queries/creations'
 import { useTemplates, useTemplateFields, useLogExport } from '../../lib/queries/templates'
+import { TOAST_Z } from '../../lib/stacking'
 import { nextAvailableName } from '../../lib/creationNaming'
 import {
   layersFromCanvasData,
@@ -1751,7 +1752,7 @@ export function EditorPage() {
       {toast && (
         <div
           role="status"
-          className={`fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-full px-4 py-2 text-sm text-white shadow-lg sm:bottom-6 ${
+          className={`fixed bottom-24 left-1/2 ${TOAST_Z} -translate-x-1/2 rounded-full px-4 py-2 text-sm text-white shadow-lg sm:bottom-6 ${
             toast.isError ? 'bg-red-600' : 'bg-neutral-900'
           }`}
         >

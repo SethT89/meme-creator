@@ -82,4 +82,25 @@ describe('SaveDialog', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Remove work' }))
     expect(screen.queryByText('work')).not.toBeInTheDocument()
   })
+
+  it('shows nothing but the form: no code comments leaking into the dialog as visible text', () => {
+    render(
+      <SaveDialog open title="Save" defaultName="Drake 1" defaultTags={[]} existingCreations={[]} onCancel={vi.fn()} onSave={vi.fn()} />,
+    )
+    // A `//` comment written directly inside JSX is not a comment — React renders it as text.
+    expect(screen.getByRole('dialog')).not.toHaveTextContent('//')
+  })
+
+  it('locks the page behind it while open, and releases it when closed', () => {
+    const props = { title: 'Save', defaultName: 'Drake 1', defaultTags: [], existingCreations: [], onCancel: vi.fn(), onSave: vi.fn() }
+    const { rerender } = render(<SaveDialog open {...props} />)
+    expect(document.body.style.position).toBe('fixed')
+    rerender(<SaveDialog open={false} {...props} />)
+    expect(document.body.style.position).toBe('')
+  })
+
+  it('layers above the canvas + button and every toolbar', () => {
+    render(<SaveDialog open title="Save" defaultName="x" defaultTags={[]} existingCreations={[]} onCancel={vi.fn()} onSave={vi.fn()} />)
+    expect(screen.getByRole('dialog')).toHaveClass('z-60')
+  })
 })

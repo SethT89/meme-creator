@@ -41,4 +41,11 @@ describe('TagsModal', () => {
     await userEvent.click(screen.getByRole('dialog'))
     expect(onClose).toHaveBeenCalledTimes(1)
   })
+
+  it('locks the page behind it while open, and releases it when closed', () => {
+    const { unmount } = render(<TagsModal name="Drake 1" tags={['funny']} onClose={() => {}} />)
+    expect(document.body.style.position).toBe('fixed')
+    unmount()
+    expect(document.body.style.position).toBe('')
+  })
 })

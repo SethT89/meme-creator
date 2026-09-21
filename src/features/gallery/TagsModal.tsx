@@ -1,6 +1,7 @@
 import { useEffect, useId } from 'react'
 import { Button } from '../../components/ui/button'
 import { Chip } from '../../components/ui/chip'
+import { ModalOverlay } from '../../components/ui/ModalOverlay'
 
 interface TagsModalProps {
   name: string
@@ -22,17 +23,7 @@ export function TagsModal({ name, tags, onClose }: TagsModalProps) {
   }, [onClose])
 
   return (
-    // The backdrop is the dialog element itself, so a click that lands on it
-    // (rather than bubbling up from the panel) means "clicked outside".
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={titleId}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose()
-      }}
-    >
+    <ModalOverlay aria-labelledby={titleId} onScrimClick={onClose}>
       <div className="w-80 max-w-[calc(100vw-2rem)] rounded-lg bg-background p-4 shadow-lg">
         <h2 id={titleId} className="mb-3 text-sm font-semibold">
           Tags — {name}
@@ -48,6 +39,6 @@ export function TagsModal({ name, tags, onClose }: TagsModalProps) {
           </Button>
         </div>
       </div>
-    </div>
+    </ModalOverlay>
   )
 }
