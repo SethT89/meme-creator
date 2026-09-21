@@ -1849,16 +1849,17 @@ describe('EditorPage', () => {
       }
     })
 
-    it('makes Templates and Export the same width as each other on a phone, and the menu a square', async () => {
+    it('sizes Templates and Export by their own label plus the same padding, and makes the menu a square', async () => {
       renderEditor()
       await screen.findByRole('button', { name: 'Two Buttons' })
       const { templates, exportButton, more } = buttons()
 
-      expect(templates).toHaveClass('w-24')
-      expect(exportButton).toHaveClass('w-24')
-      // From `sm` up Export goes back to hugging its label, as before.
-      expect(exportButton).toHaveClass('sm:w-auto')
-      expect(more).toHaveClass('w-8', 'pointer-coarse:w-11') // square at both heights
+      // No fixed width on either text button: each is as wide as its text plus the button's padding.
+      for (const button of [templates, exportButton]) {
+        expect(button.className).not.toMatch(/(^|\s)(sm:)?w-/)
+        expect(button).toHaveClass('px-3')
+      }
+      expect(more).toHaveClass('w-8', 'pointer-coarse:w-11') // a square at both heights
     })
 
     it("puts a saved meme's name on its own line under the buttons on a phone, and keeps it at the left of the row on desktop", async () => {

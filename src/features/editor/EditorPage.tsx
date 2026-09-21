@@ -21,7 +21,6 @@ import { SaveDialog } from './SaveDialog'
 import { useCreation, useCreateCreation, useCreations, useUpdateCreation } from '../../lib/queries/creations'
 import { useTemplates, useTemplateFields, useLogExport } from '../../lib/queries/templates'
 import { TOAST_Z } from '../../lib/stacking'
-import { TOOLBAR_TEXT_BUTTON } from '../../lib/toolbarButtons'
 import { nextAvailableName } from '../../lib/creationNaming'
 import {
   layersFromCanvasData,
@@ -1243,7 +1242,6 @@ export function EditorPage() {
             <Button
               size="sm"
               variant="outline"
-              className={TOOLBAR_TEXT_BUTTON}
               disabled={!activeCanvas || exporting || uploadingImage}
               onClick={handleExport}
             >

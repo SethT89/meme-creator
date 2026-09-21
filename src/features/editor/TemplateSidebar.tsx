@@ -6,7 +6,6 @@ import { prefetchImage } from '../../lib/prefetchImage'
 import { useScrollLock } from '../../lib/useScrollLock'
 import { TemplateSearchInput } from './TemplateSearchInput'
 import { Button } from '../../components/ui/button'
-import { TOOLBAR_TEXT_BUTTON } from '../../lib/toolbarButtons'
 
 export interface SelectedTemplate {
   id: string
@@ -31,11 +30,12 @@ export interface TemplateSidebarProps {
 
 const ignoreDrawerChange = () => {}
 
-// The phone's "Templates" button: a plain outlined button, the same look and size as Export
-// beside it. Below `sm` only — desktop shows the templates as a permanent column instead.
+// The phone's "Templates" button: a plain outlined button, the same look and height as Export
+// beside it (its width comes from its label and the button's padding). Below `sm` only —
+// desktop shows the templates as a permanent column instead.
 export function TemplatesButton({ open, onToggle }: { open: boolean; onToggle: () => void }) {
   return (
-    <Button type="button" variant="outline" size="sm" aria-expanded={open} onClick={onToggle} className={`sm:hidden ${TOOLBAR_TEXT_BUTTON}`}>
+    <Button type="button" variant="outline" size="sm" aria-expanded={open} onClick={onToggle} className="sm:hidden">
       Templates
     </Button>
   )
