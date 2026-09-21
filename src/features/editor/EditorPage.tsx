@@ -12,7 +12,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { Button } from '../../components/ui/button'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
-import { TemplateSidebar } from './TemplateSidebar'
+import { TemplateSidebar, TemplatesButton } from './TemplateSidebar'
 import type { SelectedTemplate } from './TemplateSidebar'
 import { PropertyBar } from './PropertyBar'
 import { CanvasFab } from './CanvasFab'
@@ -21,6 +21,7 @@ import { SaveDialog } from './SaveDialog'
 import { useCreation, useCreateCreation, useCreations, useUpdateCreation } from '../../lib/queries/creations'
 import { useTemplates, useTemplateFields, useLogExport } from '../../lib/queries/templates'
 import { TOAST_Z } from '../../lib/stacking'
+import { TOOLBAR_TEXT_BUTTON } from '../../lib/toolbarButtons'
 import { nextAvailableName } from '../../lib/creationNaming'
 import {
   layersFromCanvasData,
@@ -84,6 +85,9 @@ export function EditorPage() {
   const createCreation = useCreateCreation()
   const updateCreation = useUpdateCreation()
   const logExport = useLogExport()
+  // The phone's template drawer. Owned here (not by the sidebar) because its toggle button sits in
+  // the toolbar row beside Export.
+  const [templatesOpen, setTemplatesOpen] = useState(false)
 
   // The unsaved work left behind last time, if any (see lib/editorDraft.ts): restored silently,
   // straight into the editor's own state below. Read once, on mount. On a saved meme's own route
@@ -1204,7 +1208,12 @@ export function EditorPage() {
     // Stacked on a phone: the template toggle sits ABOVE the canvas instead of beside
     // it (side by side, the toggle's column took width and squeezed the canvas).
     <div className="flex h-full flex-col gap-3 pb-20 sm:flex-row sm:gap-6 sm:pb-0">
-      <TemplateSidebar selectedTemplateId={source?.type === 'template' ? source.templateId : undefined} onSelectTemplate={handleSelectTemplate} />
+      <TemplateSidebar
+        selectedTemplateId={source?.type === 'template' ? source.templateId : undefined}
+        onSelectTemplate={handleSelectTemplate}
+        drawerOpen={templatesOpen}
+        onDrawerOpenChange={setTemplatesOpen}
+      />
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* This row sits above the Canvas (the checkerboard artwork surface
@@ -1219,15 +1228,22 @@ export function EditorPage() {
             near that same corner (needed a pointer-events workaround to
             stop it from blocking clicks) — an in-flow row above the Canvas
             avoids that class of bug entirely, not just this one instance. */}
-        <div className="mb-3 flex items-center justify-between gap-3">
+        {/* flex-wrap so that on a phone the meme's name can drop onto its own line UNDER the
+            buttons (order-last + basis-full); from `sm` up it does not wrap and the name is back at
+            the left of the row. The Templates button only exists below `sm`. */}
+        <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-2 sm:flex-nowrap">
+          <TemplatesButton open={templatesOpen} onToggle={() => setTemplatesOpen((open) => !open)} />
           {/* No "Editor" placeholder when nothing's saved yet — redundant
               with the page itself. Once saved, the creation's own name is
               genuinely useful info, so that still shows. */}
-          {savedMeta ? <h2 className="text-lg font-semibold">{savedMeta.name}</h2> : <div />}
-          <div className="flex items-center gap-1.5">
+          {savedMeta && (
+            <h2 className="order-last min-w-0 basis-full text-lg font-semibold sm:order-none sm:basis-auto">{savedMeta.name}</h2>
+          )}
+          <div className="ml-auto flex items-center gap-1.5">
             <Button
               size="sm"
               variant="outline"
+              className={TOOLBAR_TEXT_BUTTON}
               disabled={!activeCanvas || exporting || uploadingImage}
               onClick={handleExport}
             >

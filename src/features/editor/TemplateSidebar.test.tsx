@@ -1,8 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { useState } from 'react'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { TemplateSidebar } from './TemplateSidebar'
+import { TemplateSidebar, TemplatesButton } from './TemplateSidebar'
 
 vi.mock('../../lib/prefetchImage', () => ({ prefetchImage: vi.fn() }))
 import { prefetchImage } from '../../lib/prefetchImage'
@@ -72,6 +73,19 @@ function renderWithQuery(ui: React.ReactElement) {
   return render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>)
 }
 
+
+// The editor page owns the drawer's open/closed state (its toggle button lives in the toolbar row,
+// beside Export), so drawer tests render the sidebar the way the page does.
+function SidebarWithToggle() {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <TemplatesButton open={open} onToggle={() => setOpen((o) => !o)} />
+      <TemplateSidebar selectedTemplateId={undefined} onSelectTemplate={vi.fn()} drawerOpen={open} onDrawerOpenChange={setOpen} />
+    </>
+  )
+}
+
 describe('TemplateSidebar', () => {
   it('renders templates most-used first', async () => {
     renderWithQuery(<TemplateSidebar selectedTemplateId={undefined} onSelectTemplate={vi.fn()} />)
@@ -135,7 +149,7 @@ describe('TemplateSidebar', () => {
   })
 
   it('is collapsed by default and expands into a drawer when its toggle is clicked', async () => {
-    renderWithQuery(<TemplateSidebar selectedTemplateId={undefined} onSelectTemplate={vi.fn()} />)
+    renderWithQuery(<SidebarWithToggle />)
 
     // The template list isn't visible until the drawer is opened, on narrow
     // viewports — but jsdom doesn't do real layout/media queries, so this
@@ -187,9 +201,9 @@ describe('TemplateSidebar', () => {
     })
 
     const openDrawer = async () => {
-      renderWithQuery(<TemplateSidebar selectedTemplateId={undefined} onSelectTemplate={vi.fn()} />)
+      renderWithQuery(<SidebarWithToggle />)
       await screen.findByRole('button', { name: 'Drake' })
-      const toggle = screen.getByRole('button', { name: /^☰ Templates$/ })
+      const toggle = screen.getByRole('button', { name: 'Templates' })
       await userEvent.click(toggle)
       return toggle
     }
@@ -442,5 +456,41 @@ describe('TemplateSidebar', () => {
       await userEvent.keyboard('{ArrowDown}')
       expect(screen.getByRole('button', { name: 'Skydiving Chicken' })).toHaveFocus()
     })
+  })
+
+  describe('Templates button (phones)', () => {
+    it('is a plain button labelled just "Templates": no ☰ icon, no icon of any kind', () => {
+      render(<TemplatesButton open={false} onToggle={vi.fn()} />)
+      const button = screen.getByRole('button', { name: 'Templates' })
+      expect(button).toHaveTextContent(/^Templates$/)
+      expect(button.querySelector('svg')).toBeNull()
+    })
+
+    it('looks like the Export button beside it: the same outlined small Button', () => {
+      render(<TemplatesButton open={false} onToggle={vi.fn()} />)
+      expect(screen.getByRole('button', { name: 'Templates' })).toHaveClass('border', 'h-8', 'pointer-coarse:h-11', 'text-xs')
+    })
+
+    it('only exists on phones: desktop shows the templates as a permanent sidebar instead', () => {
+      render(<TemplatesButton open={false} onToggle={vi.fn()} />)
+      expect(screen.getByRole('button', { name: 'Templates' })).toHaveClass('sm:hidden')
+    })
+
+    it('reports whether the drawer is open, and toggles it when pressed', async () => {
+      const onToggle = vi.fn()
+      const { rerender } = render(<TemplatesButton open={false} onToggle={onToggle} />)
+      const button = screen.getByRole('button', { name: 'Templates' })
+      expect(button).toHaveAttribute('aria-expanded', 'false')
+      await userEvent.click(button)
+      expect(onToggle).toHaveBeenCalledTimes(1)
+      rerender(<TemplatesButton open onToggle={onToggle} />)
+      expect(button).toHaveAttribute('aria-expanded', 'true')
+    })
+  })
+
+  it('takes no room of its own on a phone (its toggle lives in the toolbar), so the page adds no blank gap above the canvas', () => {
+    const { container } = renderWithQuery(<TemplateSidebar selectedTemplateId={undefined} onSelectTemplate={vi.fn()} />)
+    const wrapper = container.firstElementChild as HTMLElement
+    expect(wrapper).toHaveClass('contents', 'sm:block')
   })
 })

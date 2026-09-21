@@ -1819,6 +1819,62 @@ describe('EditorPage', () => {
     })
   })
 
+  describe('toolbar row above the canvas', () => {
+    const buttons = () => ({
+      templates: screen.getByRole('button', { name: 'Templates' }),
+      exportButton: screen.getByRole('button', { name: 'Export' }),
+      more: screen.getByRole('button', { name: 'More options' }),
+    })
+
+    it('puts Templates, Export and the three-dots menu on the same row, Templates first', async () => {
+      renderEditor()
+      await screen.findByRole('button', { name: 'Two Buttons' })
+      const { templates, exportButton, more } = buttons()
+
+      const row = templates.parentElement as HTMLElement
+      expect(row).toContainElement(exportButton)
+      expect(row).toContainElement(more)
+      // Templates comes first in the row, so it sits at the left with Export and the menu at the right.
+      expect(templates.compareDocumentPosition(exportButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      expect(exportButton.compareDocumentPosition(more) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    })
+
+    it('makes all three the same height, on a mouse and on a touch screen', async () => {
+      renderEditor()
+      await screen.findByRole('button', { name: 'Two Buttons' })
+      const { templates, exportButton, more } = buttons()
+
+      for (const button of [templates, exportButton, more]) {
+        expect(button).toHaveClass('h-8', 'pointer-coarse:h-11')
+      }
+    })
+
+    it('makes Templates and Export the same width as each other on a phone, and the menu a square', async () => {
+      renderEditor()
+      await screen.findByRole('button', { name: 'Two Buttons' })
+      const { templates, exportButton, more } = buttons()
+
+      expect(templates).toHaveClass('w-24')
+      expect(exportButton).toHaveClass('w-24')
+      // From `sm` up Export goes back to hugging its label, as before.
+      expect(exportButton).toHaveClass('sm:w-auto')
+      expect(more).toHaveClass('w-8', 'pointer-coarse:w-11') // square at both heights
+    })
+
+    it("puts a saved meme's name on its own line under the buttons on a phone, and keeps it at the left of the row on desktop", async () => {
+      // A unique id: the saved-rows list is shared by every test in this file, and lookups take the first match.
+      savedRows.push({ id: 'toolbar-row-1', name: 'Row Title Meme', tags: [], source_type: 'template', template_id: 'tmpl-1', canvas_data: {} })
+      renderEditor('/editor/toolbar-row-1')
+      const heading = await screen.findByRole('heading', { name: 'Row Title Meme' })
+      const { templates, exportButton } = buttons()
+
+      expect(heading.parentElement).toBe(templates.parentElement) // same flex row, so CSS order decides where it lands
+      expect(heading).toHaveClass('order-last', 'basis-full') // phone: last, and wide enough to wrap onto its own line
+      expect(heading).toHaveClass('sm:order-none', 'sm:basis-auto') // desktop: back where it was
+      expect(exportButton).toBeInTheDocument()
+    })
+  })
+
   describe('Export', () => {
     beforeEach(() => {
       vi.mocked(renderCreationToBlob).mockReset().mockResolvedValue(new Blob(['fake'], { type: 'image/png' }))

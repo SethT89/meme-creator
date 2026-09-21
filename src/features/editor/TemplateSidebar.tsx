@@ -5,7 +5,8 @@ import { searchTemplates } from '../../lib/templateSearch'
 import { prefetchImage } from '../../lib/prefetchImage'
 import { useScrollLock } from '../../lib/useScrollLock'
 import { TemplateSearchInput } from './TemplateSearchInput'
-import { TAP_HEIGHT } from '../../lib/touch'
+import { Button } from '../../components/ui/button'
+import { TOOLBAR_TEXT_BUTTON } from '../../lib/toolbarButtons'
 
 export interface SelectedTemplate {
   id: string
@@ -21,13 +22,35 @@ export interface SelectedTemplate {
 export interface TemplateSidebarProps {
   selectedTemplateId: string | undefined
   onSelectTemplate: (template: SelectedTemplate) => void
+  // Whether the phone's slide-out drawer is open. The page owns this, because the button that
+  // toggles it (TemplatesButton) sits in the toolbar row beside Export, not inside the sidebar.
+  // Closed when not given.
+  drawerOpen?: boolean
+  onDrawerOpenChange?: (open: boolean) => void
 }
 
-export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: TemplateSidebarProps) {
+const ignoreDrawerChange = () => {}
+
+// The phone's "Templates" button: a plain outlined button, the same look and size as Export
+// beside it. Below `sm` only — desktop shows the templates as a permanent column instead.
+export function TemplatesButton({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <Button type="button" variant="outline" size="sm" aria-expanded={open} onClick={onToggle} className={`sm:hidden ${TOOLBAR_TEXT_BUTTON}`}>
+      Templates
+    </Button>
+  )
+}
+
+export function TemplateSidebar({
+  selectedTemplateId,
+  onSelectTemplate,
+  drawerOpen = false,
+  onDrawerOpenChange = ignoreDrawerChange,
+}: TemplateSidebarProps) {
   const { data: templates = [] } = useTemplatesByUsage()
   const logUsage = useLogTemplateUsage()
   const [query, setQuery] = useState('')
-  const [drawerOpen, setDrawerOpen] = useState(false)
+  const setDrawerOpen = onDrawerOpenChange
   // The page must not scroll behind the open drawer.
   useScrollLock(drawerOpen)
   // The drawer only exists below the `sm` breakpoint (640px). If the screen grows
@@ -41,7 +64,7 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
     }
     wide.addEventListener('change', closeWhenWide)
     return () => wide.removeEventListener('change', closeWhenWide)
-  }, [])
+  }, [setDrawerOpen])
   // `templates` arrives sorted by usage, and searchTemplates keeps that order
   // between equally good matches, so popular templates lead among ties.
   const visible = useMemo(() => searchTemplates(templates, query), [templates, query])
@@ -188,26 +211,12 @@ export function TemplateSidebar({ selectedTemplateId, onSelectTemplate }: Templa
   )
 
   return (
-    // A single wrapping element so this whole sidebar (toggle + drawer +
-    // desktop column) is exactly one flex item in EditorPage's row. Without
-    // this, the mobile toggle button's own `w-full` was computing against
-    // the *entire row* (its flex-basis, as a direct sibling of the canvas
-    // column) instead of a sidebar-sized area — it claimed all the row's
-    // width for itself and left the canvas at 0px. Shrink-to-fit content
-    // sizing on this wrapper (no explicit width) is exactly right: narrow
-    // (just the toggle button) on mobile, sm:w-56 on desktop.
-    <div className="shrink-0 sm:h-full sm:w-56">
-      {/* Mobile: a toggle that expands the list as a slide-out overlay
-          instead of permanently occupying layout width. Desktop keeps the
-          permanent column; both render the same listContent underneath. */}
-      <button
-        type="button"
-        aria-expanded={drawerOpen}
-        onClick={() => setDrawerOpen((open) => !open)}
-        className={`mb-2 w-full rounded-md border border-border p-2 text-left text-sm font-medium sm:hidden ${TAP_HEIGHT}`}
-      >
-        {drawerOpen ? '✕ Close Templates' : '☰ Templates'}
-      </button>
+    // Below `sm` this wrapper is `display: contents`: on a phone the sidebar is only the slide-out
+    // drawer (fixed, so out of flow) and its toggle lives in the page's toolbar row, so the
+    // wrapper must take no room — as a real box it would add an empty flex item, and the page's
+    // gap would open a blank strip above the canvas. From `sm` up it is the permanent sidebar
+    // column, exactly one flex item in EditorPage's row (sm:w-56).
+    <div className="contents sm:block sm:h-full sm:w-56 sm:shrink-0">
       {drawerOpen && (
         // z-30: above the canvas's floating + button (z-10), which comes later in
         // the page and would otherwise paint over the drawer. Below dialogs (z-60)
