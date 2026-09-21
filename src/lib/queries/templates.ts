@@ -29,6 +29,24 @@ export function useTemplateFields(templateId: string | undefined) {
   })
 }
 
+// One-off fetches for callers that need a single template on demand (the gallery's Download) without
+// loading the whole list. `fetchTemplate` resolves to undefined for a template that no longer exists.
+export async function fetchTemplate(id: string) {
+  const { data, error } = await supabase.from('templates').select('id, image_width, image_height, blank_image_url').eq('id', id).maybeSingle()
+  if (error) throw error
+  return data ?? undefined
+}
+
+export async function fetchTemplateFields(templateId: string) {
+  const { data, error } = await supabase
+    .from('template_fields')
+    .select('*')
+    .eq('template_id', templateId)
+    .order('order_index', { ascending: true })
+  if (error) throw error
+  return data
+}
+
 export function useTemplatesByUsage() {
   return useQuery({
     queryKey: ['templates', 'by-usage'],

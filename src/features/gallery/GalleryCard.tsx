@@ -110,13 +110,11 @@ export function GalleryCard({ creation, onDownload, onOpen, onDelete }: GalleryC
 
         {menuOpen && (
           <div role="menu" className="absolute right-0 top-full z-10 mt-1 w-40 rounded-md border border-border bg-background py-1 shadow-lg">
-            {/* Download saves the stored preview PNG, so it only makes sense once
-                one exists (older saves get theirs the next time they're saved). */}
-            {creation.preview_image_url && (
-              <button type="button" role="menuitem" className={MENU_ITEM} onClick={() => runAndClose(onDownload)}>
-                Download
-              </button>
-            )}
+            {/* Download rebuilds the meme from its saved data as a lossless PNG (like Export), so it
+                does not depend on a stored preview existing. */}
+            <button type="button" role="menuitem" className={MENU_ITEM} onClick={() => runAndClose(onDownload)}>
+              Download
+            </button>
             <button type="button" role="menuitem" className={MENU_ITEM} onClick={() => runAndClose(onOpen)}>
               Open in editor
             </button>

@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCreations, useDeleteCreation } from '../../lib/queries/creations'
+import type { CreationRow } from '../../lib/queries/creations'
+import { renderCreationForDownload } from '../../lib/downloadCreation'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { canShareFile, downloadBlob, isMobileOrTabletDevice, sanitizeFilename, shareFile } from '../../lib/exportDelivery'
 import { clearDraft, readDraft } from '../../lib/editorDraft'
@@ -39,15 +41,32 @@ export function GalleryPage() {
   // thumbnail shows — using the same delivery rule as the editor's Export
   // (native share sheet on a touch device that supports it, otherwise a
   // plain download).
+  // The file to hand over: the meme rebuilt from its saved data as a lossless full-size PNG — the same
+  // render as the Export button. (It used to be the stored preview, a compressed JPEG whose text picked
+  // up JPEG noise.) If it can't be rebuilt — say its template was deleted — the stored preview is better
+  // than nothing.
+  async function fileForDownload(creation: CreationRow): Promise<Blob> {
+    try {
+      return await renderCreationForDownload(creation)
+    } catch (renderError) {
+      if (!creation.preview_image_url) throw renderError
+      const response = await fetch(creation.preview_image_url)
+      if (!response.ok) throw new Error(`Preview fetch failed: ${response.status}`, { cause: renderError })
+      return response.blob()
+    }
+  }
+
+  // Rebuilding a big meme takes a moment, so a second tap while one is under way must not start another.
+  const downloading = useRef(false)
+
   async function handleDownload(id: string) {
     const creation = creations.find((c) => c.id === id)
-    if (!creation?.preview_image_url) return
+    if (!creation || downloading.current) return
+    downloading.current = true
     setDownloadError(false)
     try {
-      const response = await fetch(creation.preview_image_url)
-      if (!response.ok) throw new Error(`Preview fetch failed: ${response.status}`)
-      const blob = await response.blob()
-      // New previews are JPEGs; ones saved earlier are PNGs. Name the file for what it is.
+      const blob = await fileForDownload(creation)
+      // The rebuilt file is a PNG; only the fallback preview can be a JPEG. Name the file for what it is.
       const isJpeg = blob.type === 'image/jpeg'
       const filename = `${sanitizeFilename(creation.name)}.${isJpeg ? 'jpg' : 'png'}`
       const file = new File([blob], filename, { type: isJpeg ? 'image/jpeg' : 'image/png' })
@@ -63,6 +82,8 @@ export function GalleryPage() {
       }
     } catch {
       setDownloadError(true)
+    } finally {
+      downloading.current = false
     }
   }
 

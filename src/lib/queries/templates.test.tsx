@@ -3,7 +3,7 @@ import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { CURRENT_USER_ID } from '../currentUser'
-import { useTemplates, useTemplateFields, useTemplatesByUsage, useLogTemplateUsage, useLogExport } from './templates'
+import { useTemplates, useTemplateFields, useTemplatesByUsage, useLogTemplateUsage, useLogExport, fetchTemplate, fetchTemplateFields } from './templates'
 
 const mockFields = [
   { id: 'f1', template_id: 'tmpl-1', label: 'Caption 1', order_index: 0 },
@@ -26,6 +26,9 @@ function templatesQuery() {
       lastTemplateOrders.push([column, options])
       return query
     },
+    eq: (column: string, value: string) => ({
+      maybeSingle: () => Promise.resolve({ data: mockTemplates.find((t) => (t as Record<string, unknown>)[column === 'id' ? 'id' : column] === value) ?? null, error: null }),
+    }),
     then: (resolve: (value: unknown) => unknown, reject?: (reason: unknown) => unknown) =>
       Promise.resolve({ data: mockTemplates, error: null }).then(resolve, reject),
   }
@@ -129,5 +132,21 @@ describe('useLogExport', () => {
     result.current.mutate(null)
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(lastUsageInsert).toEqual({ template_id: null, event_type: 'export', user_id: CURRENT_USER_ID })
+  })
+})
+
+describe('fetchTemplate', () => {
+  it('returns one template by id, for callers (like the gallery download) that only need a single one on demand', async () => {
+    expect(await fetchTemplate('t2')).toEqual({ id: 't2', name: 'Drake' })
+  })
+
+  it('returns undefined when that template no longer exists', async () => {
+    expect(await fetchTemplate('gone')).toBeUndefined()
+  })
+})
+
+describe('fetchTemplateFields', () => {
+  it("returns a template's caption fields in order", async () => {
+    expect(await fetchTemplateFields('tmpl-1')).toEqual(mockFields)
   })
 })

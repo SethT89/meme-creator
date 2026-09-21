@@ -89,11 +89,11 @@ describe('GalleryCard', () => {
       expect(screen.queryByRole('menu')).not.toBeInTheDocument()
     })
 
-    it('offers no Download until a preview exists to download', async () => {
+    it('offers Download even for a save with no stored preview, since it is rebuilt from the saved data', async () => {
       renderCard({ preview_image_url: null })
       await userEvent.click(dots())
 
-      expect(screen.queryByRole('menuitem', { name: 'Download' })).not.toBeInTheDocument()
+      expect(screen.getByRole('menuitem', { name: 'Download' })).toBeInTheDocument()
       expect(screen.getByRole('menuitem', { name: 'Open in editor' })).toBeInTheDocument()
       expect(screen.getByRole('menuitem', { name: 'Delete' })).toBeInTheDocument()
     })

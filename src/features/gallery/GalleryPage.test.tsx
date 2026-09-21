@@ -13,6 +13,8 @@ vi.mock('../../lib/exportDelivery', () => ({
 import { canShareFile, isMobileOrTabletDevice, shareFile, downloadBlob } from '../../lib/exportDelivery'
 vi.mock('../../lib/assetStorage', () => ({ removeUnusedAssets: vi.fn().mockResolvedValue(undefined) }))
 import { removeUnusedAssets } from '../../lib/assetStorage'
+vi.mock('../../lib/downloadCreation', () => ({ renderCreationForDownload: vi.fn() }))
+import { renderCreationForDownload } from '../../lib/downloadCreation'
 import { GalleryPage } from './GalleryPage'
 import { readDraft, writeDraft } from '../../lib/editorDraft'
 
@@ -45,6 +47,8 @@ beforeEach(() => {
   vi.mocked(isMobileOrTabletDevice).mockReset().mockReturnValue(false)
   vi.mocked(shareFile).mockReset().mockResolvedValue(undefined)
   vi.mocked(downloadBlob).mockReset()
+  // Download rebuilds the meme as a lossless PNG (the same render as the Export button).
+  vi.mocked(renderCreationForDownload).mockReset().mockResolvedValue(new Blob(['lossless-png'], { type: 'image/png' }))
 })
 
 function renderGallery() {
@@ -125,53 +129,104 @@ describe('GalleryPage', () => {
   })
 
   describe('Download', () => {
-    it("downloads the creation's saved preview as a PNG named after it", async () => {
-      renderGallery()
+    const openDownload = async () => {
       await userEvent.click(await screen.findByRole('button', { name: 'More options for Drake 1' }))
       await userEvent.click(screen.getByRole('menuitem', { name: 'Download' }))
+    }
+
+    it("rebuilds the meme as a lossless PNG (same as Export) and downloads it named after the creation, not the stored JPEG preview", async () => {
+      renderGallery()
+      await openDownload()
 
       await waitFor(() => expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), 'Drake-1.png'))
-      expect(fetch).toHaveBeenCalledWith(PREVIEW_URL)
+      expect(renderCreationForDownload).toHaveBeenCalledWith(expect.objectContaining({ id: '1', name: 'Drake 1' }))
+      expect(fetch).not.toHaveBeenCalled() // the compressed preview is not involved
       expect(shareFile).not.toHaveBeenCalled()
     })
 
-    it('names a JPEG preview .jpg and a PNG preview .png, matching what is actually downloaded', async () => {
-      vi.mocked(fetch).mockResolvedValue({ ok: true, blob: () => Promise.resolve(new Blob(['jpg'], { type: 'image/jpeg' })) } as Response)
+    it('works for a save that has no stored preview, since nothing depends on it any more', async () => {
+      rows[0].preview_image_url = null
       renderGallery()
-      await userEvent.click(await screen.findByRole('button', { name: 'More options for Drake 1' }))
-      await userEvent.click(screen.getByRole('menuitem', { name: 'Download' }))
+      await openDownload()
 
-      await waitFor(() => expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), 'Drake-1.jpg'))
+      await waitFor(() => expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), 'Drake-1.png'))
     })
 
     it('uses the native share sheet on a touch device that supports sharing files, like Export does', async () => {
       vi.mocked(canShareFile).mockReturnValue(true)
       vi.mocked(isMobileOrTabletDevice).mockReturnValue(true)
       renderGallery()
-      await userEvent.click(await screen.findByRole('button', { name: 'More options for Drake 1' }))
-      await userEvent.click(screen.getByRole('menuitem', { name: 'Download' }))
+      await openDownload()
 
       await waitFor(() => expect(shareFile).toHaveBeenCalledWith(expect.any(File), 'Drake-1.png'))
       expect(downloadBlob).not.toHaveBeenCalled()
     })
 
-    it('says so when the download fails, instead of failing silently', async () => {
-      vi.mocked(fetch).mockRejectedValue(new Error('network'))
+    it("does not count a cancelled share sheet as a failure", async () => {
+      vi.mocked(canShareFile).mockReturnValue(true)
+      vi.mocked(isMobileOrTabletDevice).mockReturnValue(true)
+      const cancelled = new Error('cancelled')
+      cancelled.name = 'AbortError'
+      vi.mocked(shareFile).mockRejectedValue(cancelled)
       renderGallery()
-      await userEvent.click(await screen.findByRole('button', { name: 'More options for Drake 1' }))
-      await userEvent.click(screen.getByRole('menuitem', { name: 'Download' }))
+      await openDownload()
 
-      expect(await screen.findByRole('alert')).toHaveTextContent(/download failed/i)
-      expect(downloadBlob).not.toHaveBeenCalled()
+      await waitFor(() => expect(shareFile).toHaveBeenCalled())
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
     })
 
-    it('treats a non-OK response as a failure too', async () => {
-      vi.mocked(fetch).mockResolvedValue({ ok: false, blob: () => Promise.resolve(new Blob()) } as Response)
-      renderGallery()
-      await userEvent.click(await screen.findByRole('button', { name: 'More options for Drake 1' }))
-      await userEvent.click(screen.getByRole('menuitem', { name: 'Download' }))
+    describe("when the meme can't be rebuilt (e.g. its template was deleted)", () => {
+      beforeEach(() => {
+        vi.mocked(renderCreationForDownload).mockRejectedValue(new Error('template gone'))
+      })
 
-      expect(await screen.findByRole('alert')).toHaveTextContent(/download failed/i)
+      it('falls back to the stored preview rather than giving nothing, naming the file for what it is', async () => {
+        vi.mocked(fetch).mockResolvedValue({ ok: true, blob: () => Promise.resolve(new Blob(['jpg'], { type: 'image/jpeg' })) } as Response)
+        renderGallery()
+        await openDownload()
+
+        await waitFor(() => expect(downloadBlob).toHaveBeenCalledWith(expect.any(Blob), 'Drake-1.jpg'))
+        expect(fetch).toHaveBeenCalledWith(PREVIEW_URL)
+      })
+
+      it('says so when there is no preview to fall back to either', async () => {
+        rows[0].preview_image_url = null
+        renderGallery()
+        await openDownload()
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(/download failed/i)
+        expect(downloadBlob).not.toHaveBeenCalled()
+      })
+
+      it('says so when the fallback preview cannot be fetched either', async () => {
+        vi.mocked(fetch).mockRejectedValue(new Error('network'))
+        renderGallery()
+        await openDownload()
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(/download failed/i)
+        expect(downloadBlob).not.toHaveBeenCalled()
+      })
+
+      it('treats a non-OK preview response as a failure too', async () => {
+        vi.mocked(fetch).mockResolvedValue({ ok: false, blob: () => Promise.resolve(new Blob()) } as Response)
+        renderGallery()
+        await openDownload()
+
+        expect(await screen.findByRole('alert')).toHaveTextContent(/download failed/i)
+      })
+    })
+
+    it('ignores a second tap on Download while the first is still being prepared, so it cannot download twice', async () => {
+      let finish!: (blob: Blob) => void
+      vi.mocked(renderCreationForDownload).mockReturnValue(new Promise<Blob>((resolve) => (finish = resolve)))
+      renderGallery()
+      await openDownload()
+      await userEvent.click(screen.getByRole('button', { name: 'More options for Drake 1' }))
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Download' }))
+      expect(renderCreationForDownload).toHaveBeenCalledTimes(1)
+
+      finish(new Blob(['png'], { type: 'image/png' }))
+      await waitFor(() => expect(downloadBlob).toHaveBeenCalledTimes(1))
     })
   })
 
