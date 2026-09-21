@@ -30,10 +30,11 @@ describe('wrapTextLines', () => {
 
 describe('renderCreationToBlob', () => {
   function mockContext() {
-    const calls: { method: string; args: unknown[] }[] = []
+    const calls: { method: string; args: unknown[]; lineJoin?: string }[] = []
     const ctx = {
       drawImage: (...args: unknown[]) => calls.push({ method: 'drawImage', args }),
-      strokeText: (...args: unknown[]) => calls.push({ method: 'strokeText', args }),
+      // Records the line-join style in force at the moment the outline is drawn.
+      strokeText: (...args: unknown[]) => calls.push({ method: 'strokeText', args, lineJoin: ctx.lineJoin }),
       fillText: (...args: unknown[]) => calls.push({ method: 'fillText', args }),
       // Fixed ascent/descent (not derived from fontSize) so a baseline-y
       // comparison across two calls isolates exactly the padding term —
@@ -43,6 +44,7 @@ describe('renderCreationToBlob', () => {
       textAlign: '',
       textBaseline: '',
       lineWidth: 0,
+      lineJoin: 'miter', // the real canvas default — the source of the spikes if it is never changed
       strokeStyle: '',
       fillStyle: '',
     }
@@ -77,6 +79,23 @@ describe('renderCreationToBlob', () => {
     const fillIndex = calls.findIndex((c) => c.method === 'fillText')
     expect(strokeIndex).toBeGreaterThan(0)
     expect(fillIndex).toBeGreaterThan(strokeIndex)
+
+    vi.restoreAllMocks()
+  })
+
+  it('draws the outline with rounded joins, so the sharp corners of letters (W, V, A, K, X) do not shoot out as black spikes', async () => {
+    // A canvas stroke defaults to mitered joins, and this outline is very thick (0.24em): at a sharp
+    // corner the miter extends far past the letter as a spike. The on-screen editor draws it clean, so
+    // the export must too.
+    const { ctx, calls } = mockContext()
+    stubCanvas(ctx)
+    const layers: Layer[] = [{ type: 'text', id: 'f1', label: 'WAVE', x: 10, y: 20, width: 300, height: 80, fontSize: 60, heightAuto: true }]
+
+    await renderCreationToBlob(document.createElement('div'), { image_width: 600, image_height: 400 }, layers)
+
+    const stroke = calls.find((c) => c.method === 'strokeText')
+    expect(stroke).toBeDefined()
+    expect(stroke!.lineJoin).toBe('round')
 
     vi.restoreAllMocks()
   })

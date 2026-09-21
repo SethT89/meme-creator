@@ -93,6 +93,10 @@ function drawLayer(ctx: CanvasRenderingContext2D, layer: TextLayer, scale: numbe
   ctx.textAlign = style.textAlign
   ctx.textBaseline = 'alphabetic'
   ctx.lineWidth = layer.fontSize * OUTLINE_WIDTH_EM
+  // A canvas stroke joins corners with sharp miters by default. With an outline this thick
+  // (0.24em) the sharp corners of letters like W, V, A, K, X then shoot out as black spikes that
+  // the on-screen editor never shows. Rounded joins keep the outline hugging the letter.
+  ctx.lineJoin = 'round'
   ctx.fillStyle = style.color
   if (style.strokeColor) ctx.strokeStyle = style.strokeColor
 
