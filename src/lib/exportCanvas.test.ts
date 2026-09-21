@@ -197,6 +197,24 @@ describe('renderCreationToBlob', () => {
     expect(await baselineYAt(300)).toBeGreaterThan(await baselineYAt(600))
   })
 
+  it('uses an explicit displayWidth for the padding scale when there is no on-screen element to measure (rendering a saved meme from its data)', async () => {
+    const layers: Layer[] = [{ type: 'text', id: 'f1', label: 'hi', x: 10, y: 100, width: 200, height: 50, fontSize: 20, heightAuto: true }]
+
+    async function baselineYWith(displayWidth: number | undefined) {
+      const { ctx, calls } = mockContext()
+      stubCanvas(ctx)
+      // A detached element has no size, exactly like the stand-in the gallery passes.
+      await renderCreationToBlob(document.createElement('div'), { image_width: 600, image_height: 908 }, layers, { displayWidth })
+      vi.restoreAllMocks()
+      return calls.find((c) => c.method === 'fillText')!.args[2] as number
+    }
+
+    // Shown narrower => the fixed 4px CSS padding is a bigger share of the image => text sits lower.
+    expect(await baselineYWith(300)).toBeGreaterThan(await baselineYWith(600))
+    // And it beats the detached element's zero width, which would otherwise mean "no scaling".
+    expect(await baselineYWith(300)).toBeGreaterThan((await baselineYWith(undefined)) as number)
+  })
+
   describe('render options (for small previews)', () => {
     function recordingContext() {
       const { ctx, calls } = mockContext()

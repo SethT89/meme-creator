@@ -135,7 +135,7 @@ function drawLayer(ctx: CanvasRenderingContext2D, layer: TextLayer, scale: numbe
 
 // crossOrigin is required, not cosmetic: without it a cross-origin image
 // (Supabase storage) taints the canvas and toBlob() then throws.
-function loadImage(src: string): Promise<HTMLImageElement> {
+export function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image()
     img.crossOrigin = 'anonymous'
@@ -176,6 +176,10 @@ export interface RenderOptions {
   // (or hang off) the canvas: enlarging a template's canvas leaves it off-center
   // with empty space around it, and shrinking the canvas below it crops it.
   background?: { image: HTMLImageElement; x: number; y: number; width: number; height: number }
+  // How wide, in CSS px, the creation is assumed to have been shown on screen — the one thing the fixed
+  // 4px text padding depends on. Normally measured from the on-screen element; only pass this when there
+  // is no such element (rendering a saved meme from its data, e.g. the gallery's Download).
+  displayWidth?: number
 }
 
 // Renders a creation onto an off-screen canvas at its real pixel
@@ -234,7 +238,7 @@ export async function renderCreationToBlob(
   // drag/resize math already uses as "displayScale". Falls back to no scaling
   // (1) when unavailable (e.g. an element never attached to the DOM, as in
   // this file's own tests).
-  const displayWidth = display.getBoundingClientRect().width
+  const displayWidth = options.displayWidth ?? display.getBoundingClientRect().width
   const scale = displayWidth > 0 ? templateRow.image_width / displayWidth : 1
 
   // Drawn in layer order so stacking matches the on-screen editor.

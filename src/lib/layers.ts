@@ -243,7 +243,7 @@ export function sizeLabel(fontSize: number): string {
   return preset ? preset.label : `${fontSize}px`
 }
 
-interface TemplateFieldRow {
+export interface TemplateFieldRow {
   id: string
   label: string
   position_x: number
