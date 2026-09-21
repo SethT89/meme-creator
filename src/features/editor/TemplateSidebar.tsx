@@ -4,6 +4,7 @@ import { useTemplatesByUsage, useLogTemplateUsage } from '../../lib/queries/temp
 import { searchTemplates } from '../../lib/templateSearch'
 import { prefetchImage } from '../../lib/prefetchImage'
 import { useScrollLock } from '../../lib/useScrollLock'
+import { usePresence } from '../../lib/usePresence'
 import { TemplateSearchInput } from './TemplateSearchInput'
 import { Button } from '../../components/ui/button'
 
@@ -30,6 +31,10 @@ export interface TemplateSidebarProps {
 
 const ignoreDrawerChange = () => {}
 
+// How long the drawer takes to slide out. It stays mounted this long after closing, so it must
+// match the closing `duration-200` on the panel and scrim below.
+const DRAWER_EXIT_MS = 200
+
 // The phone's "Templates" button: a plain outlined button, the same look and height as Export
 // beside it (its width comes from its label and the button's padding). Below `sm` only —
 // desktop shows the templates as a permanent column instead.
@@ -53,6 +58,8 @@ export function TemplateSidebar({
   const setDrawerOpen = onDrawerOpenChange
   // The page must not scroll behind the open drawer.
   useScrollLock(drawerOpen)
+  // Slides in and out rather than popping: stays mounted while the exit plays.
+  const { mounted: drawerMounted, shown: drawerShown } = usePresence(drawerOpen, DRAWER_EXIT_MS)
   // The drawer only exists below the `sm` breakpoint (640px). If the screen grows
   // past it while open (rotating a phone), the drawer disappears — close it too,
   // or the page would stay frozen behind something that is no longer there.
@@ -217,16 +224,31 @@ export function TemplateSidebar({
     // gap would open a blank strip above the canvas. From `sm` up it is the permanent sidebar
     // column, exactly one flex item in EditorPage's row (sm:w-56).
     <div className="contents sm:block sm:h-full sm:w-56 sm:shrink-0">
-      {drawerOpen && (
+      {drawerMounted && (
         // z-30: above the canvas's floating + button (z-10), which comes later in
         // the page and would otherwise paint over the drawer. Below dialogs (z-60)
         // and toasts (z-70) — see lib/stacking.ts for the whole scale.
-        <div className="fixed inset-0 z-30 flex sm:hidden">
-          {/* touch-none: dragging on the dark strip must not scroll anything. */}
-          <div className="absolute inset-0 touch-none bg-black/50" onClick={() => setDrawerOpen(false)} />
+        // pointer-events-none once it starts closing: the fading overlay must not eat taps meant
+        // for the page underneath.
+        <div className={`fixed inset-0 z-30 flex sm:hidden ${drawerShown ? '' : 'pointer-events-none'}`}>
+          {/* touch-none: dragging on the dark strip must not scroll anything. Fades with the panel's
+              slide: a touch slower coming in (300ms) than going out (200ms). */}
+          <div
+            className={`absolute inset-0 touch-none bg-black/50 transition-opacity ease-out motion-reduce:transition-none ${
+              drawerShown ? 'opacity-100 duration-300' : 'opacity-0 duration-200'
+            }`}
+            onClick={() => setDrawerOpen(false)}
+          />
           {/* Nearly the full width, leaving just a slim strip of scrim to tap to
-              close — the old fixed 256px felt cramped on a 375px+ screen. */}
-          <div className="relative flex h-full w-[calc(100vw-3rem)] max-w-md flex-col bg-background p-3 shadow-lg">{listContent}</div>
+              close — the old fixed 256px felt cramped on a 375px+ screen. Slides in from the left;
+              a transform (not left/width), so it animates smoothly on the GPU. */}
+          <div
+            className={`relative flex h-full w-[calc(100vw-3rem)] max-w-md flex-col bg-background p-3 shadow-lg transition-transform motion-reduce:transition-none ${
+              drawerShown ? 'translate-x-0 duration-300 ease-out' : '-translate-x-full duration-200 ease-in'
+            }`}
+          >
+            {listContent}
+          </div>
         </div>
       )}
 

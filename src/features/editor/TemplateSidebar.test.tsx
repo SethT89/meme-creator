@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { useState } from 'react'
-import { render, screen, fireEvent, act } from '@testing-library/react'
+import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TemplateSidebar, TemplatesButton } from './TemplateSidebar'
@@ -254,6 +254,48 @@ describe('TemplateSidebar', () => {
     it('stops the scrim from scrolling the page underneath it', async () => {
       await openDrawer()
       expect(document.querySelector('.bg-black\\/50')).toHaveClass('touch-none')
+    })
+
+    describe('animation', () => {
+      const overlay = () => document.querySelector('.fixed.inset-0.z-30') as HTMLElement
+      const panel = () => document.querySelector('.fixed.inset-0.z-30 .bg-background') as HTMLElement
+      const scrim = () => document.querySelector('.fixed.inset-0.z-30 .bg-black\\/50') as HTMLElement
+
+      it('slides the panel in from the left and fades the scrim in, once it has been painted in its starting position', async () => {
+        await openDrawer()
+        await waitFor(() => expect(panel()).toHaveClass('translate-x-0'))
+        expect(panel()).toHaveClass('transition-transform', 'duration-300')
+        expect(panel()).not.toHaveClass('-translate-x-full')
+        await waitFor(() => expect(scrim()).toHaveClass('opacity-100'))
+        expect(scrim()).toHaveClass('transition-opacity', 'duration-300')
+      })
+
+      it('slides back out and fades the scrim away when closed, staying mounted just long enough to play', async () => {
+        await openDrawer()
+        await waitFor(() => expect(panel()).toHaveClass('translate-x-0'))
+
+        await userEvent.click(scrim())
+
+        expect(panel()).toHaveClass('-translate-x-full', 'duration-200')
+        expect(scrim()).toHaveClass('opacity-0', 'duration-200')
+        await waitFor(() => expect(overlay()).toBeNull())
+      })
+
+      it('stops catching taps the moment it starts closing, so the page underneath is usable during the fade', async () => {
+        await openDrawer()
+        await waitFor(() => expect(panel()).toHaveClass('translate-x-0'))
+        expect(overlay()).not.toHaveClass('pointer-events-none')
+
+        await userEvent.click(scrim())
+
+        expect(overlay()).toHaveClass('pointer-events-none')
+      })
+
+      it('is instant for people who asked their device to reduce motion', async () => {
+        await openDrawer()
+        expect(panel()).toHaveClass('motion-reduce:transition-none')
+        expect(scrim()).toHaveClass('motion-reduce:transition-none')
+      })
     })
 
     it('closes itself, and unlocks the page, if the screen becomes wide enough for the desktop layout (e.g. rotating a phone)', async () => {
